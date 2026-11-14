@@ -195,8 +195,8 @@ fn a_scene_with_a_missing_texture_changes_nothing_but_keeps_loaded_ones() {
         assert!(err.message().contains("no-such-texture.png"), "{err}");
         // Preloading is not undone: the texture that did load is cached and
         // named, so loading it again gives the same handle.
-        let crab = ctx.load_texture("crab.png");
-        assert_eq!(ctx.load_texture("crab.png"), crab);
+        let crab = ctx.gfx.load_texture("crab.png");
+        assert_eq!(ctx.gfx.load_texture("crab.png"), crab);
     });
     assert_eq!(world.query::<&Tag>().iter().map(|t| t.0).collect::<Vec<_>>(), [4]);
     assert_eq!(world.query::<&Sprite>().iter().count(), 0);

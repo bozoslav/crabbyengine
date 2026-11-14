@@ -70,7 +70,7 @@ pub fn update_animators(ctx: &mut Ctx) {
 /// after the animators
 /// ([`Systems::UPDATE_PARTICLES`](crate::game::Systems::UPDATE_PARTICLES)).
 pub fn update_particles(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     ctx.update_particles2d(dt);
     #[cfg(feature = "3d")]
     ctx.update_particles();

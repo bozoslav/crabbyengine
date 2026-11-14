@@ -96,26 +96,26 @@ fn main() {
     Game::new("Ponko: streaming", 1280, 720)
         .vsync(!bench)
         .system(move |ctx: &mut Ctx| {
-            if ctx.key_pressed(Key::Escape) {
+            if ctx.input.key_pressed(Key::Escape) {
                 ctx.quit();
             }
-            let dt = ctx.dt();
-            if ctx.key_down(Key::Left) {
+            let dt = ctx.time.dt();
+            if ctx.input.key_down(Key::Left) {
                 yaw += dt * 0.8;
             }
-            if ctx.key_down(Key::Right) {
+            if ctx.input.key_down(Key::Right) {
                 yaw -= dt * 0.8;
             }
-            if ctx.key_down(Key::W) {
+            if ctx.input.key_down(Key::W) {
                 speed = (speed + 80.0 * dt).min(600.0);
             }
-            if ctx.key_down(Key::S) {
+            if ctx.input.key_down(Key::S) {
                 speed = (speed - 80.0 * dt).max(0.0);
             }
-            if ctx.key_down(Key::E) {
+            if ctx.input.key_down(Key::E) {
                 altitude += 40.0 * dt;
             }
-            if ctx.key_down(Key::Q) {
+            if ctx.input.key_down(Key::Q) {
                 altitude = (altitude - 40.0 * dt).max(5.0);
             }
             // Fly on, keeping above the hills ahead.

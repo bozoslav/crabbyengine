@@ -147,7 +147,7 @@ pub trait AssetSource: 'static {
 ///         .write_to(&mut std::io::Cursor::new(&mut pixel), image::ImageFormat::Png)
 ///         .unwrap();
 ///     ctx.assets.add_source(MemorySource::new("embedded").with("red.png", pixel));
-///     let red = ctx.load_texture("red.png");
+///     let red = ctx.gfx.load_texture("red.png");
 ///     assert_eq!((red.width(), red.height()), (1, 1));
 /// });
 /// ```

@@ -12,7 +12,7 @@ Give an entity a `d2::Transform` and a `Sprite`, and the built-in
 <div>
 
 ```rust
-let crab = ctx.load_texture("crab.png");
+let crab = ctx.gfx.load_texture("crab.png");
 ctx.world.spawn((
     ponko::d2::Transform::at(vec2(400.0, 300.0)).rotated(0.3).scaled(vec2(2.0, 2.0)),
     ponko::d2::Sprite::new(crab).with_color(Color::RED).with_z(1.0),
@@ -42,9 +42,9 @@ For UI, effects and quick prototypes, draw directly every frame:
 <div>
 
 ```rust
-# let crab = ctx.load_texture("crab.png");
+# let crab = ctx.gfx.load_texture("crab.png");
 ctx.gfx.clear(Color::hex(0x203040));
-ctx.draw(crab, vec2(100.0, 100.0));
+ctx.gfx.draw(crab, vec2(100.0, 100.0));
 let params = DrawParams::default()
     .with_rotation(0.5)
     .with_scale(vec2(2.0, 2.0))
@@ -72,7 +72,7 @@ what they need with `with_*` methods (`with_scale`, `with_rotation`,
 
 ## Textures
 
-- `ctx.load_texture("path.png")` loads an image file. PNG and JPEG load
+- `ctx.gfx.load_texture("path.png")` loads an image file. PNG and JPEG load
   in every default build, with no `3d` feature (see [Image formats](#image-formats)).
 - `ctx.gfx.create_texture(w, h, &rgba)` makes one from pixels.
 
@@ -120,8 +120,8 @@ outline):
 
 ```rust
 # use ponko::render::{BlendMode, SpriteMaterialDesc};
-let crab = ctx.load_texture("crab.png");
-let noise = ctx.load_texture("noise.png"); // grey: where it burns first
+let crab = ctx.gfx.load_texture("crab.png");
+let noise = ctx.gfx.load_texture("noise.png"); // grey: where it burns first
 // A glow that brightens what's behind it:
 ctx.world.spawn((
     ponko::d2::Transform::at(vec2(400.0, 300.0)),
@@ -283,7 +283,7 @@ Game::new("Art test", 1280, 720)
         }
     })
     .setup(|ctx| {
-        let level = ctx.load_texture("level.png");
+        let level = ctx.gfx.load_texture("level.png");
         ctx.world.insert_resource(Level(level));
     })
     .run();
@@ -311,7 +311,7 @@ second.
 <div>
 
 ```rust
-if ctx.key_pressed(Key::F12) {
+if ctx.input.key_pressed(Key::F12) {
     ctx.gfx.save_screenshot("shot.png");
 }
 ```

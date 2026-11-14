@@ -232,7 +232,7 @@ fn fight() -> impl FnMut(&mut Ctx) {
     let mut far = [SpatialGrid::new(SIGHT), SpatialGrid::new(SIGHT)];
     let mut positions: Vec<(Entity, Vec2, Team)> = Vec::new();
     move |ctx: &mut Ctx| {
-        let (dt, random, look) = (ctx.dt(), ctx.random(), ctx.time.turns(4));
+        let (dt, random, look) = (ctx.time.dt(), ctx.random(), ctx.time.turns(4));
         let crowding = ctx.time.sim_tick().is_multiple_of(2);
         ctx.world
             .query::<(Entity, &d2::Transform, &Unit)>()
@@ -525,9 +525,9 @@ fn controls(ctx: &mut Ctx) {
     let home = ctx.world.resource::<Battle>().bases;
     let rally = if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
         Some(ctx.mouse_world())
-    } else if ctx.key_pressed(Key::A) {
+    } else if ctx.input.key_pressed(Key::A) {
         Some(home[1])
-    } else if ctx.key_pressed(Key::D) {
+    } else if ctx.input.key_pressed(Key::D) {
         Some(home[0])
     } else {
         None
@@ -538,10 +538,10 @@ fn controls(ctx: &mut Ctx) {
             b.set_rally(Team::Red, at);
         }
     }
-    if ctx.key_pressed(Key::R) {
+    if ctx.input.key_pressed(Key::R) {
         start_round(ctx);
     }
-    if ctx.key_pressed(Key::Space) {
+    if ctx.input.key_pressed(Key::Space) {
         if ctx.time.is_paused() {
             ctx.time.resume()
         } else {
@@ -549,11 +549,11 @@ fn controls(ctx: &mut Ctx) {
         }
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 2.0), (Key::Num3, 4.0)] {
-        if ctx.key_pressed(key) {
+        if ctx.input.key_pressed(key) {
             ctx.time.set_speed(speed);
         }
     }
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }
@@ -635,7 +635,7 @@ fn hud(ctx: &mut Ctx) {
         format!("{}x", ctx.time.speed())
     };
     let panel = Rect::new(12.0, 12.0, 300.0, 150.0);
-    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    ctx.immediate_ui().panel(panel);
     let at = panel.min + ctx.ui.immediate.style.padding;
     let text = format!(
         "red {} vs blue {}   (rounds {}-{})\nsim {sim_ms:.2} ms/tick, {:.0} FPS, {speed}\nfield {field_ms:.2} ms\nclick: rally  A: attack  D: defend\nR: restart  1-3: speed",
@@ -645,7 +645,7 @@ fn hud(ctx: &mut Ctx) {
         won[1],
         ctx.time.fps()
     );
-    ctx.ui.immediate.label(&mut ctx.gfx, at, &text);
+    ctx.immediate_ui().label(at, &text);
     if let Some(team) = winner {
         let msg = if team == Team::Red {
             "Red wins! R for another round"
@@ -654,7 +654,7 @@ fn hud(ctx: &mut Ctx) {
         };
         let center = ctx.window_size() / 2.0;
         let size = ctx.gfx.measure_text(msg, 32.0);
-        ctx.draw_text(msg, center - size / 2.0, 32.0, team.color());
+        ctx.gfx.draw_text(msg, center - size / 2.0, 32.0, team.color());
     }
 }
 

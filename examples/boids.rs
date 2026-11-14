@@ -30,7 +30,7 @@ fn env_number(name: &str, default: f64) -> f64 {
 fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
     let mut grid = SpatialGrid::with_data(RADIUS);
     move |ctx: &mut Ctx| {
-        let dt = ctx.dt();
+        let dt = ctx.time.dt();
         // Keep boids that are close in space close in memory, so neighbor
         // lookups hit the cache (1M boids: 62 -> 40 ms/tick).
         if ctx
@@ -76,29 +76,29 @@ fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
 // ANCHOR_END: flocking
 
 fn controls(ctx: &mut Ctx) {
-    if ctx.key_pressed(Key::Space) {
+    if ctx.input.key_pressed(Key::Space) {
         if ctx.time.is_paused() {
             ctx.time.resume()
         } else {
             ctx.time.pause()
         }
     }
-    if ctx.key_pressed(Key::Period) {
+    if ctx.input.key_pressed(Key::Period) {
         ctx.time.step();
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 4.0), (Key::Num3, 16.0), (Key::Num4, 64.0)] {
-        if ctx.key_pressed(key) {
+        if ctx.input.key_pressed(key) {
             ctx.time.set_speed(speed);
         }
     }
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }
 
 fn spawn_boids(ctx: &mut Ctx, n: usize, bounds: Vec2) {
     ctx.world.reflect::<Vel>();
-    let tex = ctx.load_texture("crab.png");
+    let tex = ctx.gfx.load_texture("crab.png");
     let mut s = 0x9E37_79B9_7F4A_7C15u64;
     let mut rand = move || {
         s ^= s << 13;

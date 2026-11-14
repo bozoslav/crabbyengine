@@ -60,7 +60,7 @@ fn setup(ctx: &mut Ctx) {
 
 /// Sim system: turns every `Spin` entity.
 pub fn spin(ctx: &mut Ctx) {
-    let turn = Quat::from_rotation_y(ctx.world.resource::<Settings>().spin_speed * ctx.dt());
+    let turn = Quat::from_rotation_y(ctx.world.resource::<Settings>().spin_speed * ctx.time.dt());
     ctx.world
         .query::<(&mut Transform, &Spin)>()
         .for_each(|(t, _)| t.rotation = turn * t.rotation);
@@ -68,14 +68,14 @@ pub fn spin(ctx: &mut Ctx) {
 
 /// Frame system: Space pauses the simulation, Escape quits.
 fn controls(ctx: &mut Ctx) {
-    if ctx.key_pressed(Key::Space) {
+    if ctx.input.key_pressed(Key::Space) {
         if ctx.time.is_paused() {
             ctx.time.resume();
         } else {
             ctx.time.pause();
         }
     }
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }

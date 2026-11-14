@@ -141,7 +141,7 @@ fn emitter_from_json(world: &World, value: Value) -> Result<ParticleEmitter2D, S
             world
                 .get_resource::<TextureNames>()
                 .and_then(|t| t.get(&name))
-                .ok_or_else(|| format!("texture \"{name}\" isn't loaded: ctx.load_texture(\"{name}\") first"))?,
+                .ok_or_else(|| format!("texture \"{name}\" isn't loaded: ctx.gfx.load_texture(\"{name}\") first"))?,
         ),
         None => None,
     };

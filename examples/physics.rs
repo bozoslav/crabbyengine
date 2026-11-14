@@ -66,7 +66,7 @@ fn ring_the_bell(ctx: &mut Ctx) {
     for c in ctx.events.read::<CollisionStarted>() {
         rang |= c.sensor && [c.a, c.b].iter().any(|&e| ctx.world.has::<Bell>(e));
     }
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     for bell in ctx.world.query::<&mut Bell>().iter() {
         bell.rang = if rang { 1.0 } else { (bell.rang - dt * 2.0).max(0.0) };
     }
@@ -75,7 +75,7 @@ fn ring_the_bell(ctx: &mut Ctx) {
 
 // ANCHOR: queries
 fn blast(ctx: &mut Ctx) {
-    if !ctx.key_pressed(Key::Space) {
+    if !ctx.input.key_pressed(Key::Space) {
         return;
     }
     let center = ctx.mouse_world();
@@ -130,14 +130,14 @@ fn drop_things(ctx: &mut Ctx) {
             Collider::polygon(&rock).friction(0.7),
         ));
     }
-    if ctx.key_pressed(Key::R) {
+    if ctx.input.key_pressed(Key::R) {
         let all: Vec<Entity> = ctx.world.query::<Entity>().filter::<With<RigidBody>>().iter().collect();
         for e in all {
             ctx.world.despawn(e);
         }
         build_level(ctx);
     }
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }
@@ -202,7 +202,7 @@ fn draw(ctx: &mut Ctx) {
         ctx.gfx.draw_circle(hit.point, 4.0, Color::rgb(1.0, 0.2, 0.2));
     }
     let bodies = ctx.physics.body_count();
-    ctx.draw_text(
+    ctx.gfx.draw_text(
         &format!(
             "{bodies} bodies  |  left click: crate  right click: ball  middle click: rock  space: blast  R: reset"
         ),

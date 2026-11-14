@@ -177,7 +177,7 @@ fn the_guide_beach_has_five_palms() {
 fn sprites_are_saved_by_their_image_name_and_load_it() {
     let file = TempAsset::new("test-prefab-crab.json");
     game().run_headless(0, |ctx| {
-        let crab = ctx.load_texture("crab.png");
+        let crab = ctx.gfx.load_texture("crab.png");
         let mut sprite = Sprite::new(crab);
         sprite.z = 3.0;
         let model = ctx.world.spawn((Transform2D::default(), sprite));
@@ -190,7 +190,7 @@ fn sprites_are_saved_by_their_image_name_and_load_it() {
         let e = ctx.spawn_prefab(file.name(), vec2(5.0, 5.0)).unwrap();
         let sprite = *ctx.world.get::<Sprite>(e).unwrap();
         assert_eq!(sprite.z, 3.0);
-        assert_eq!(sprite.texture, ctx.load_texture("crab.png"), "the same handle");
+        assert_eq!(sprite.texture, ctx.gfx.load_texture("crab.png"), "the same handle");
     });
 }
 
@@ -736,7 +736,7 @@ fn a_scene_keeps_each_animations_frame() {
     let file = TempAsset::new("test-scene-animated.json");
     let mut crab = None;
     let saved = game().run_headless(0, |ctx| {
-        let sheet = SpriteSheet::new(ctx.load_texture("crab.png"), 16, 16);
+        let sheet = SpriteSheet::new(ctx.gfx.load_texture("crab.png"), 16, 16);
         let mut walk = ponko::sheet::Animation::new(sheet, 1..4, 6.0).once();
         walk.time = 0.4;
         crab = Some(ctx.world.spawn((Transform2D::default(), sheet.sprite(1), walk)));

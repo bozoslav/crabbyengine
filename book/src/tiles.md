@@ -11,7 +11,7 @@ right, top to bottom.
 
 ```rust
 # let pos = vec2(100.0, 100.0);
-let tex = ctx.load_texture("units.png");
+let tex = ctx.gfx.load_texture("units.png");
 let sheet = SpriteSheet::new(tex, 32, 32);   // 32 × 32 frames
 ctx.world.spawn((ponko::d2::Transform::at(pos), sheet.sprite(5))); // frame 5
 ```
@@ -36,7 +36,7 @@ For pixel art, turn smoothing off so pixels stay square:
 <div>
 
 ```rust
-# let tex = ctx.load_texture("units.png");
+# let tex = ctx.gfx.load_texture("units.png");
 ctx.gfx.set_texture_filter(tex, TextureFilter::Nearest);
 ```
 
@@ -61,7 +61,7 @@ system (on by default, all cores) advances it every frame:
 ```rust
 # use ponko::sheet::Animation;
 # let pos = vec2(100.0, 100.0);
-# let sheet = SpriteSheet::new(ctx.load_texture("units.png"), 32, 32);
+# let sheet = SpriteSheet::new(ctx.gfx.load_texture("units.png"), 32, 32);
 ctx.world.spawn((
     ponko::d2::Transform::at(pos),
     sheet.sprite(0),
@@ -161,7 +161,7 @@ map can scroll slower than the world, for far-away layers:
 
 ```rust
 # use ponko::tilemap::TileMap;
-# let mut map = TileMap::new(SpriteSheet::new(ctx.load_texture("levels/meadow.png"), 16, 16), 40, 15);
+# let mut map = TileMap::new(SpriteSheet::new(ctx.gfx.load_texture("levels/meadow.png"), 16, 16), 40, 15);
 map.parallax = vec2(0.3, 0.3);                      // far away: scrolls slowly
 map.animate(4, &[(4, 0.4), (5, 0.4)]);             // tile 4 shows 4, 5, 4, 5, ...
 map.set_flipped(3, 2, Some(7), TileMap::FLIP_X);   // a mirrored tile

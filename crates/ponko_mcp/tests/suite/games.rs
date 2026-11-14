@@ -87,7 +87,7 @@ fn arena_setup(ctx: &mut Ctx) {
 
 /// Frame system: arrow keys (or WASD) set the intent.
 fn read_input(ctx: &mut Ctx) {
-    let held = |ctx: &Ctx, a: Key, b: Key| ctx.key_down(a) || ctx.key_down(b);
+    let held = |ctx: &Ctx, a: Key, b: Key| ctx.input.key_down(a) || ctx.input.key_down(b);
     let mut dir = Vec2::ZERO;
     if held(ctx, Key::Left, Key::A) {
         dir.x -= 1.0;
@@ -107,7 +107,7 @@ fn read_input(ctx: &mut Ctx) {
 /// Sim system: moves the player by the intent, inside the arena.
 fn movement(ctx: &mut Ctx) {
     let step =
-        ctx.world.resource::<Intent>().0.clamp_length_max(1.0) * ctx.world.resource::<Settings>().speed * ctx.dt();
+        ctx.world.resource::<Intent>().0.clamp_length_max(1.0) * ctx.world.resource::<Settings>().speed * ctx.time.dt();
     ctx.world
         .query::<(&mut d2::Transform, &Player)>()
         .for_each(|(t, _)| t.position = (t.position + step).clamp(Vec2::ZERO, ARENA));
@@ -252,7 +252,7 @@ fn spawn_wave(ctx: &mut Ctx) {
 
 /// Sim system: the hazard hurts every enemy, less through armor.
 fn hazard(ctx: &mut Ctx) {
-    let damage = HAZARD_DPS * ctx.dt();
+    let damage = HAZARD_DPS * ctx.time.dt();
     ctx.world
         .query::<(&mut Health, &Enemy)>()
         .for_each(|(h, e)| h.current -= damage * (1.0 - e.armor));

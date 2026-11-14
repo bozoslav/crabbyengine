@@ -54,10 +54,10 @@ fn textures_and_sounds_are_counted_with_their_bytes() {
 #[test]
 fn loading_the_same_texture_again_adds_nothing() {
     headless(|ctx| {
-        let _ = ctx.load_texture("crab.png");
+        let _ = ctx.gfx.load_texture("crab.png");
         let base = ctx.asset_inventory();
         for _ in 0..10 {
-            let _ = ctx.load_texture("crab.png");
+            let _ = ctx.gfx.load_texture("crab.png");
         }
         assert!(ctx.asset_inventory().growth_since(&base).is_empty());
     });
@@ -360,7 +360,7 @@ fn records_say_when_and_by_whom_each_handle_was_made() {
             done.set(true);
         })
         .run_headless(5, |ctx| {
-            let _ = ctx.load_texture("crab.png");
+            let _ = ctx.gfx.load_texture("crab.png");
         });
     assert!(checked.get());
 }

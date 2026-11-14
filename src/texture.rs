@@ -12,7 +12,7 @@ use crate::color::Color;
 /// ```
 /// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx) {
-/// let crab = ctx.load_texture("crab.png");
+/// let crab = ctx.gfx.load_texture("crab.png");
 /// println!("{} x {}", crab.width(), crab.height());
 /// # }
 /// ```

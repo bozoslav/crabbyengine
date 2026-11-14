@@ -40,7 +40,7 @@ impl Default for Walker {
 const LEVEL: &str = "levels/level.json";
 
 fn walk(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let bounds = ctx.window_size();
     ctx.world
         .query::<(&mut d2::Transform, &mut Walker)>()
@@ -69,7 +69,7 @@ fn main() {
                 println!("loaded assets/{LEVEL}");
                 return;
             }
-            let crab = ctx.load_texture("crab.png");
+            let crab = ctx.gfx.load_texture("crab.png");
             let mut rng = Rng::new(7);
             for _ in 0..12 {
                 let at = vec2(rng.range(100.0, 1180.0), rng.range(100.0, 620.0));

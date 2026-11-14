@@ -705,7 +705,7 @@ impl Default for NavAgent3D {
 /// });
 /// ```
 pub fn step_navmesh3d(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     step_world(&mut ctx.world, dt);
 }
 

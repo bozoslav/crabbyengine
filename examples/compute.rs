@@ -54,7 +54,7 @@ fn main() {
     let mut next_drop = 0.0;
     Game::new("Ponko: compute", 1280, 720)
         .system(move |ctx: &mut Ctx| {
-            if ctx.key_pressed(Key::Escape) {
+            if ctx.input.key_pressed(Key::Escape) {
                 ctx.quit();
             }
             let Some(pass) = ctx.scene3d.passes.compute.first().copied() else {
@@ -63,13 +63,13 @@ fn main() {
             let Some(drops) = pass.material else { return };
             // Rain every so often, or a stone where the mouse clicks.
             let mut drop = Vec4::ZERO;
-            next_drop -= ctx.dt();
+            next_drop -= ctx.time.dt();
             if next_drop <= 0.0 {
                 next_drop = 0.05 + random() * 0.2;
                 drop = vec4(random(), random(), 0.3 + random() * 0.4, 0.0);
             }
             if ctx.input.mouse_pressed(MouseButton::Left) {
-                let (from, dir) = ctx.scene3d.camera.screen_ray(ctx.mouse_pos());
+                let (from, dir) = ctx.scene3d.camera.screen_ray(ctx.input.mouse_pos());
                 if dir.y < 0.0 {
                     let at = from + dir * (-from.y / dir.y);
                     drop = vec4(at.x / SIZE + 0.5, at.z / SIZE + 0.5, 3.0, 0.0);

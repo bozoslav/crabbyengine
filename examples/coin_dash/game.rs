@@ -252,7 +252,7 @@ impl Plugin for Drawing {
     fn setup(&self, ctx: &mut Ctx) {
         ctx.gfx.clear(Color::hex(0x14181f));
         let disc = disc(ctx);
-        let coin = ctx.load_texture(COIN_ASSET);
+        let coin = ctx.gfx.load_texture(COIN_ASSET);
         ctx.world.insert_resource(Art { disc, coin });
         let sounds = Sounds {
             pickup: tone(ctx, 880.0, 1320.0, 0.10),
@@ -449,7 +449,7 @@ pub fn rules(ctx: &mut Ctx) {
 /// round when it is won or the time is up.
 fn play(ctx: &mut Ctx, direction: Vec2) {
     // Move, clamped to the arena. A diagonal is not faster than a straight line.
-    let step = direction.clamp_length_max(1.0) * SPEED * ctx.dt();
+    let step = direction.clamp_length_max(1.0) * SPEED * ctx.time.dt();
     let mut player = Vec2::ZERO;
     for (t, _) in ctx.world.query::<(&mut Transform, &Player)>().iter() {
         t.position = (t.position + step).clamp(Vec2::ZERO, ARENA);
@@ -471,7 +471,7 @@ fn play(ctx: &mut Ctx, direction: Vec2) {
         sfx(ctx, |s| s.pickup);
     }
 
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let round = ctx.world.resource_mut::<Round>();
     round.collected += touched.len();
     round.time_left = (round.time_left - dt).max(0.0);
@@ -746,7 +746,8 @@ pub fn hud(ctx: &mut Ctx) {
             "Round {}   Coins {}/{}   Time {:.1}",
             round.number, round.collected, COINS, round.time_left
         );
-        ctx.draw_text(&status, vec2(12.0, 8.0) * scale, 20.0 * scale, Color::WHITE);
+        ctx.gfx
+            .draw_text(&status, vec2(12.0, 8.0) * scale, 20.0 * scale, Color::WHITE);
     }
     // The block of lines, centred on the arena.
     let lines = screen_lines(&ctx.world);
@@ -755,7 +756,8 @@ pub fn hud(ctx: &mut Ctx) {
     for l in lines {
         let size = l.size * scale;
         let width = ctx.gfx.measure_text(&l.text, size).x;
-        ctx.draw_text(&l.text, vec2((ARENA.x - width) / 2.0, y), size, l.color);
+        ctx.gfx
+            .draw_text(&l.text, vec2((ARENA.x - width) / 2.0, y), size, l.color);
         y += size * 1.5;
     }
 }

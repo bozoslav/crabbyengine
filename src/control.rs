@@ -1304,7 +1304,7 @@ fn render_inspector_json(ctx: &Ctx, history: usize) -> Value {
     });
     #[cfg(feature = "3d")]
     let (autotune, off) = (
-        json!(ctx.scene3d.quality_autotune_status(&ctx.gfx)),
+        json!(ctx.quality_autotune_status()),
         "automatic quality tuning is off (SceneSettings::set_quality_autotune turns it on)",
     );
     #[cfg(not(feature = "3d"))]

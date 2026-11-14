@@ -86,7 +86,7 @@ fn sway(ctx: &mut Ctx) {
     ctx.world.query::<&mut Animator>().for_each(|a| {
         a.set_bool(ParamId(0), ((time / 3.0) as u32).is_multiple_of(2));
     });
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }

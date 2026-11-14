@@ -119,7 +119,7 @@ fn setup(ctx: &mut Ctx, side: u32) {
 // ANCHOR_END: setup
 
 fn wander(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     ctx.world
         .query::<(&mut d2::Transform, &Wander)>()
         .par_for_each(|(t, w)| t.position += w.0 * dt);
@@ -152,10 +152,10 @@ fn hud(ctx: &mut Ctx) {
     );
     let size = ctx.gfx.measure_text(&text, ctx.ui.immediate.style.text_size) + 2.0 * ctx.ui.immediate.style.padding;
     let panel = Rect::new(12.0, 12.0, size.x, size.y);
-    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
-    ctx.ui
-        .immediate
-        .label(&mut ctx.gfx, panel.min + ctx.ui.immediate.style.padding, &text);
+    let at = panel.min + ctx.ui.immediate.style.padding;
+    let mut ui = ctx.immediate_ui();
+    ui.panel(panel);
+    ui.label(at, &text);
 }
 
 fn main() {

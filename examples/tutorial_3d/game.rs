@@ -185,7 +185,7 @@ fn control(ctx: &mut Ctx) {
     let movement = ctx.input.action_axis2(act.movement); // y is down: W is -1
     let turn = ctx.input.action_axis(act.turn);
     let jump = ctx.input.action_pressed(act.jump);
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let player = ctx.world.resource_mut::<Player>();
     player.yaw -= turn * TURN_SPEED * dt;
     let Player { entity, yaw } = *player;

@@ -807,7 +807,7 @@ impl Camera3D {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let (from, dir) = ctx.scene3d.camera.screen_ray(ctx.mouse_pos());
+    /// let (from, dir) = ctx.scene3d.camera.screen_ray(ctx.input.mouse_pos());
     /// // Where the mouse points on the ground (y = 0):
     /// if dir.y < 0.0 {
     ///     let ground = from + dir * (-from.y / dir.y);

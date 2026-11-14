@@ -49,7 +49,7 @@ fn village(ctx: &mut Ctx) {
 }
 
 fn spin(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     ctx.world.query::<(&mut Transform, &Spin)>().for_each(|(t, s)| {
         t.rotation *= Quat::from_rotation_y(s.0 * dt);
     });
@@ -1749,7 +1749,7 @@ fn quality_autotune_is_scene_opt_in_and_headless_stays_fixed() {
     // ANCHOR: quality-autotune
     use ponko::render::QualityAutotune;
     Game::new("Quality policy", 640, 360).run_headless(2, |ctx| {
-        assert!(ctx.scene3d.quality_autotune_status(&ctx.gfx).is_none()); // default: off
+        assert!(ctx.quality_autotune_status().is_none()); // default: off
         ctx.scene3d.set_quality_autotune(Some(QualityAutotune {
             target_gpu_ms: 1000.0 / 60.0,
             min_render_scale: 0.6,
@@ -1761,7 +1761,7 @@ fn quality_autotune_is_scene_opt_in_and_headless_stays_fixed() {
         ctx.scene3d.pin_shadow_resolution(2048);
         // Freeze before a deterministic screenshot sequence and its warm-up.
         ctx.scene3d.freeze_quality_autotune(true);
-        let status = ctx.scene3d.quality_autotune_status(&ctx.gfx).unwrap();
+        let status = ctx.quality_autotune_status().unwrap();
         assert!(status.shadow_resolution_pinned);
         assert_eq!(status.changes, 0); // headless never tunes
         ctx.scene3d.freeze_quality_autotune(false);

@@ -14,7 +14,7 @@ use ponko_ecs::Component;
 /// ```
 /// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx) {
-/// let tex = ctx.load_texture("crab.png"); // say it holds 16 × 16 frames
+/// let tex = ctx.gfx.load_texture("crab.png"); // say it holds 16 × 16 frames
 /// let sheet = SpriteSheet::new(tex, 16, 16);
 /// ctx.world.spawn((ponko::d2::Transform::at(vec2(100.0, 100.0)), sheet.sprite(3)));
 /// # }
@@ -200,7 +200,7 @@ impl Animation {
 /// The system behind [`systems::animate_sprites`](crate::systems::animate_sprites); it keeps
 /// this path for its name (`ponko::sheet::animate_sprites`).
 pub(crate) fn animate_sprites(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     ctx.world
         .query::<(&mut Animation, &mut Sprite)>()
         .par_for_each(|(a, s)| {

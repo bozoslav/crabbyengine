@@ -208,7 +208,7 @@ fn reload(path: &Path, edit: Vec<u8>) -> (Vec<u64>, u64) {
             *out.lock().unwrap() = ctx.asset_inventory().get(AssetClass::Texture).bytes;
         })
         .run_headless(5, |ctx| {
-            ctx.load_texture(&name);
+            ctx.gfx.load_texture(&name);
         });
     let seen = seen.lock().unwrap().clone();
     let bytes = *bytes.lock().unwrap();

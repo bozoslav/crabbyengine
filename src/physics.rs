@@ -427,7 +427,7 @@ impl Physics {
     /// use ponko::prelude::*;
     ///
     /// fn pause_menu(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::Escape) {
+    ///     if ctx.input.key_pressed(Key::Escape) {
     ///         let held = ctx.physics.is_paused();
     ///         ctx.physics.set_paused(!held);
     ///     }
@@ -653,7 +653,7 @@ pub fn step_physics(ctx: &mut Ctx) {
     if ctx.physics.paused {
         return;
     }
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     step(&mut ctx.physics, &mut ctx.world, &mut ctx.events, dt);
 }
 

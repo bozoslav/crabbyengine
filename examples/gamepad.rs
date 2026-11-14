@@ -34,7 +34,7 @@ const PLAYER_COLORS: [Color; ponko::input::MAX_GAMEPADS] = [
 
 // ANCHOR: gamepad
 fn move_players(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     // Read the pads first: the query below borrows the world.
     let mut sticks = [Vec2::ZERO; ponko::input::MAX_GAMEPADS];
     let mut spins = [false; ponko::input::MAX_GAMEPADS];
@@ -57,7 +57,7 @@ fn move_players(ctx: &mut Ctx) {
 
 /// Arrow keys move the keyboard's crab.
 fn move_keyboard_player(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let mut dir = Vec2::ZERO;
     for (key, d) in [
         (Key::Left, -Vec2::X),
@@ -65,11 +65,11 @@ fn move_keyboard_player(ctx: &mut Ctx) {
         (Key::Up, -Vec2::Y),
         (Key::Down, Vec2::Y),
     ] {
-        if ctx.key_down(key) {
+        if ctx.input.key_down(key) {
             dir += d;
         }
     }
-    let spin = ctx.key_pressed(Key::Space);
+    let spin = ctx.input.key_pressed(Key::Space);
     for (t, player) in ctx.world.query::<(&mut d2::Transform, &mut Player)>().iter() {
         if player.slot.is_none() {
             t.position += dir.normalize_or_zero() * SPEED * dt;
@@ -97,7 +97,7 @@ fn join_and_leave(ctx: &mut Ctx) {
         }
     }
     for slot in (0..ponko::input::MAX_GAMEPADS).filter(|&s| connected[s] && !has_crab[s]) {
-        let mut sprite = Sprite::new(ctx.load_texture("crab.png"));
+        let mut sprite = Sprite::new(ctx.gfx.load_texture("crab.png"));
         sprite.color = PLAYER_COLORS[slot];
         let at = vec2(200.0 + slot as f32 * 120.0, 360.0);
         ctx.world.spawn((
@@ -113,7 +113,7 @@ fn join_and_leave(ctx: &mut Ctx) {
 
 /// Spins play out over half a second.
 fn spin(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     for (t, player) in ctx.world.query::<(&mut d2::Transform, &mut Player)>().iter() {
         let step = player.spin.min(4.0 * std::f32::consts::TAU * dt);
         t.rotation += step;
@@ -127,7 +127,7 @@ fn hud(ctx: &mut Ctx) {
         0 => "No gamepad: plug one in, or use the arrow keys and Space".to_string(),
         n => format!("{n} gamepad(s): left stick moves, A/Cross spins, right trigger grows"),
     };
-    ctx.draw_text(&text, vec2(20.0, 20.0), 20.0, Color::WHITE);
+    ctx.gfx.draw_text(&text, vec2(20.0, 20.0), 20.0, Color::WHITE);
 }
 
 fn main() {
@@ -138,7 +138,7 @@ fn main() {
         .system(spin)
         .system(hud)
         .setup(|ctx| {
-            let crab = ctx.load_texture("crab.png");
+            let crab = ctx.gfx.load_texture("crab.png");
             ctx.world.spawn((
                 d2::Transform::at(vec2(640.0, 560.0)),
                 Sprite::new(crab),

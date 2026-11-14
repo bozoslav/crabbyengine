@@ -16,10 +16,11 @@
 //!
 //! **What it needs.** Nothing to build and query: the tree lays itself out
 //! and takes input without a window, so tests drive it headless. Drawing
-//! needs a window. The immediate widgets take what they use as arguments
-//! (`&mut ctx.gfx` to draw, `&ctx.input` for a button's mouse), so `ctx.ui`
-//! borrows apart from the world and the other services: read its events
-//! while playing sounds or changing entities.
+//! needs a window. The immediate widgets are drawn through
+//! [`ctx.immediate_ui()`](crate::ctx::Ctx::immediate_ui), which lends them the
+//! graphics and input services, so `ctx.ui` holds none of them and borrows
+//! apart from the world and the other services: read its events while
+//! playing sounds or changing entities.
 //!
 //! ```
 //! use ponko::prelude::*;
@@ -136,7 +137,7 @@ pub use access::{
 #[cfg(feature = "accessibility")]
 pub use access_native::UiAccessAdapter;
 pub use build::{UiBuilder, UiLayout, UiTheme};
-pub use immediate::UiImmediate;
+pub use immediate::{UiImmediate, UiImmediateFrame};
 pub use retained::{Ui, UiEvent, UiId, UiInput, UiPaint, UiTextAlign, UiWidget};
 
 /// Unstable: the [Taffy](https://docs.rs/taffy/0.15.1/taffy/) layout crate

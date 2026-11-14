@@ -53,7 +53,7 @@ fn spawn_crab(ctx: &mut Ctx, at: Vec2) {
 
 /// Simulation: move and bounce off the window edges.
 fn movement(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let bounds = ctx.window_size();
     ctx.world.query::<(&mut d2::Transform, &mut Vel)>().for_each(|(t, v)| {
         t.position += v.0 * dt;
@@ -70,7 +70,7 @@ fn movement(ctx: &mut Ctx) {
 
 /// Simulation: age, fade out, and despawn through commands.
 fn aging(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let commands = &mut ctx.commands;
     ctx.world
         .query::<(Entity, &mut Life, &mut Sprite)>()
@@ -85,28 +85,28 @@ fn aging(ctx: &mut Ctx) {
 
 /// Frame system: input.
 fn controls(ctx: &mut Ctx) {
-    if ctx.key_pressed(Key::Space) {
+    if ctx.input.key_pressed(Key::Space) {
         if ctx.time.is_paused() {
             ctx.time.resume()
         } else {
             ctx.time.pause()
         }
     }
-    if ctx.key_pressed(Key::Period) {
+    if ctx.input.key_pressed(Key::Period) {
         ctx.time.step();
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 4.0), (Key::Num3, 16.0), (Key::Num4, 64.0)] {
-        if ctx.key_pressed(key) {
+        if ctx.input.key_pressed(key) {
             ctx.time.set_speed(speed);
         }
     }
     if ctx.input.mouse_down(MouseButton::Left) {
-        let at = ctx.mouse_pos();
+        let at = ctx.input.mouse_pos();
         for _ in 0..5 {
             spawn_crab(ctx, at);
         }
     }
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }
@@ -118,7 +118,7 @@ fn main() {
         .system(controls)
         .system(report())
         .setup(|ctx| {
-            let crab = ctx.load_texture("crab.png");
+            let crab = ctx.gfx.load_texture("crab.png");
             ctx.world.insert_resource(Settings {
                 rng: 0x9E37_79B9_7F4A_7C15,
                 crab,

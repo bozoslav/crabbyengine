@@ -98,7 +98,7 @@ fn walkable_point(nav: &NavGrid, rng: &mut Rng) -> Vec2 {
 // ANCHOR: steer
 /// Every agent steers along the field; mud slows it down, walls stop it.
 fn steer(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let random = ctx.random();
     // Taken out for the query, which borrows the world, then put back.
     let paths = ctx.world.remove_resource::<Paths>().expect("paths");
@@ -182,7 +182,7 @@ fn make_map_view(ctx: &mut Ctx) {
 /// draws it with the goal on top.
 fn draw_map(ctx: &mut Ctx) {
     let (w, h) = (MAP.x as usize, MAP.y as usize);
-    let toggle = ctx.key_pressed(Key::H);
+    let toggle = ctx.input.key_pressed(Key::H);
     let (paths, view) = ctx.world.resources_mut::<(Paths, MapView)>();
     view.heat ^= toggle;
     let (goal, heat, tex) = (paths.goal, view.heat, view.tex);
@@ -234,21 +234,21 @@ fn click_to_move_goal(ctx: &mut Ctx) {
             paths.set_goal(at);
         }
     }
-    if ctx.key_pressed(Key::Space) {
+    if ctx.input.key_pressed(Key::Space) {
         if ctx.time.is_paused() {
             ctx.time.resume()
         } else {
             ctx.time.pause()
         }
     }
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }
 
 fn hud(ctx: &mut Ctx) {
     let panel = Rect::new(12.0, 12.0, 260.0, 104.0);
-    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    ctx.immediate_ui().panel(panel);
     let at = panel.min + ctx.ui.immediate.style.padding;
     let agents = ctx.world.query::<&Agent>().count();
     let ms = ctx.world.resource::<Paths>().compute_ms;
@@ -258,7 +258,7 @@ fn hud(ctx: &mut Ctx) {
         MAP.x,
         MAP.y
     );
-    ctx.ui.immediate.label(&mut ctx.gfx, at, &text);
+    ctx.immediate_ui().label(at, &text);
 }
 
 fn main() {

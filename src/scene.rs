@@ -663,7 +663,7 @@ impl crate::assets::Assets {
     ///
     ///     ctx.load_scene("shop.json").unwrap(); // loads "icons/apple.png" first
     ///     let item = ctx.world.query::<&ShopItem>().iter().next().unwrap().clone();
-    ///     let icon = ctx.load_texture(&item.icon); // the cached texture
+    ///     let icon = ctx.gfx.load_texture(&item.icon); // the cached texture
     ///     assert_eq!(icon.width(), 1);
     /// });
     /// ```

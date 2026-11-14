@@ -63,7 +63,7 @@ impl Rect {
     /// ```
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &Ctx, button: Rect) {
-    /// let hovered = button.contains(ctx.mouse_pos());
+    /// let hovered = button.contains(ctx.input.mouse_pos());
     /// # }
     /// ```
     #[must_use]
@@ -105,7 +105,7 @@ pub fn camera_controls(ctx: &mut crate::ctx::Ctx) {
     }
     let wheel = ctx.input.mouse_wheel().y;
     if wheel != 0.0 && !ctx.ui.wants_pointer() {
-        let mouse = ctx.mouse_pos();
+        let mouse = ctx.input.mouse_pos();
         ctx.camera.zoom_at(mouse, 1.15f32.powf(wheel));
     }
 }

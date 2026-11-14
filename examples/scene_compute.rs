@@ -51,7 +51,7 @@ fn effect(p: Pixel) -> vec3<f32> {
 fn main() {
     Game::new("Ponko: scene compute", 1280, 720)
         .system(|ctx: &mut Ctx| {
-            if ctx.key_pressed(Key::Escape) {
+            if ctx.input.key_pressed(Key::Escape) {
                 ctx.quit();
             }
             // A day in 40 seconds: the sun rises, crosses and sets.

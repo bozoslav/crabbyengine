@@ -16,7 +16,7 @@ use crate::camera::Rect;
 /// # use ponko::prelude::*;
 /// # fn follow(ctx: &mut Ctx, player: Vec2) {
 /// ctx.camera.look_at(player); // keep the player in the middle
-/// let under_mouse = ctx.camera.screen_to_world(ctx.mouse_pos());
+/// let under_mouse = ctx.camera.screen_to_world(ctx.input.mouse_pos());
 /// # let _ = under_mouse;
 /// # }
 /// ```
@@ -66,7 +66,7 @@ impl Camera2D {
     /// # use ponko::prelude::*;
     /// # fn place(ctx: &mut Ctx, flag: Texture) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) {
-    ///     let at = ctx.camera.screen_to_world(ctx.mouse_pos());
+    ///     let at = ctx.camera.screen_to_world(ctx.input.mouse_pos());
     ///     ctx.world.spawn((ponko::d2::Transform::at(at), ponko::d2::Sprite::new(flag)));
     /// }
     /// # }
@@ -82,7 +82,7 @@ impl Camera2D {
     /// # use ponko::prelude::*;
     /// # fn label(ctx: &mut Ctx, unit_at: Vec2) {
     /// let above = ctx.camera.world_to_screen(unit_at) - vec2(0.0, 20.0);
-    /// ctx.draw_text("Worker", above, 14.0, Color::WHITE);
+    /// ctx.gfx.draw_text("Worker", above, 14.0, Color::WHITE);
     /// # }
     /// ```
     #[must_use]
@@ -126,7 +126,7 @@ impl Camera2D {
     /// # fn wheel_zoom(ctx: &mut Ctx) {
     /// let wheel = ctx.input.mouse_wheel().y;
     /// if wheel != 0.0 {
-    ///     let mouse = ctx.mouse_pos();
+    ///     let mouse = ctx.input.mouse_pos();
     ///     ctx.camera.zoom_at(mouse, 1.1f32.powf(wheel));
     /// }
     /// # }

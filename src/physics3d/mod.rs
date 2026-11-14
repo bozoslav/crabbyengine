@@ -1076,7 +1076,7 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
 /// events. Added by [`Game::physics3d`](crate::game::Game::physics3d); remove or
 /// reorder it like any other system.
 pub fn step_physics3d(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     step(&mut ctx.physics3d, &mut ctx.world, &mut ctx.events, dt);
 }
 

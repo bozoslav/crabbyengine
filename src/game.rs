@@ -216,14 +216,14 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
 ///
 /// Game::new("My Game", 800, 600).run(|ctx| {
 ///     // Setup: runs once, after the window exists.
-///     let crab = ctx.load_texture("crab.png");
+///     let crab = ctx.gfx.load_texture("crab.png");
 ///     let mut pos = vec2(400.0, 300.0);
 ///
 ///     // Returned closure: runs every frame.
 ///     move |ctx: &mut Ctx| {
-///         if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
-///         if ctx.key_pressed(Key::Escape) { ctx.quit(); }
-///         ctx.draw(crab, pos);
+///         if ctx.input.key_down(Key::Right) { pos.x += 200.0 * ctx.time.dt(); }
+///         if ctx.input.key_pressed(Key::Escape) { ctx.quit(); }
+///         ctx.gfx.draw(crab, pos);
 ///     }
 /// });
 /// ```
@@ -237,12 +237,12 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
 /// struct Vel(Vec2);
 ///
 /// fn movement(ctx: &mut Ctx) {
-///     let dt = ctx.dt();
+///     let dt = ctx.time.dt();
 ///     ctx.world.query::<(&mut ponko::d2::Transform, &Vel)>().for_each(|(t, v)| t.position += v.0 * dt);
 /// }
 ///
 /// Game::new("Crabs", 800, 600).sim_system(movement).run(|ctx| {
-///     let crab = ctx.load_texture("crab.png");
+///     let crab = ctx.gfx.load_texture("crab.png");
 ///     ctx.world.spawn((ponko::d2::Transform::at(vec2(100.0, 100.0)), ponko::d2::Sprite::new(crab), Vel(vec2(50.0, 0.0))));
 /// });
 /// ```
@@ -1338,7 +1338,7 @@ impl Game {
 
     /// Adds a simulation system: it runs at the fixed rate
     /// ([`fixed_hz`](Self::fixed_hz), default 60 per second), zero or more
-    /// times per frame, and `ctx.dt()` inside it is the fixed step.
+    /// times per frame, and `ctx.time.dt()` inside it is the fixed step.
     /// Put game logic here so it behaves the same at any frame rate.
     ///
     /// Systems run in `Phase::AfterPhysics`, in registration order: this is
@@ -1495,7 +1495,7 @@ impl Game {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// fn quit_on_escape(ctx: &mut Ctx) {
-    ///     if ctx.key_pressed(Key::Escape) { ctx.quit(); }
+    ///     if ctx.input.key_pressed(Key::Escape) { ctx.quit(); }
     /// }
     ///
     /// Game::new("Sim", 800, 600).system(quit_on_escape).run(|_| {});
@@ -1698,7 +1698,7 @@ impl Game {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// Game::new("Art test", 1280, 720).hot_reload(true).run(|ctx| {
-    ///     let crab = ctx.load_texture("crab.png"); // edit crab.png while it runs
+    ///     let crab = ctx.gfx.load_texture("crab.png"); // edit crab.png while it runs
     ///     ctx.world.spawn((ponko::d2::Transform::at(vec2(640.0, 360.0)), ponko::d2::Sprite::new(crab)));
     /// });
     /// ```
@@ -2160,7 +2160,7 @@ impl Game {
     /// struct Pos(f32);
     ///
     /// fn fall(ctx: &mut Ctx) {
-    ///     let dt = ctx.dt();
+    ///     let dt = ctx.time.dt();
     ///     ctx.world.query::<&mut Pos>().for_each(|p| p.0 -= 10.0 * dt);
     /// }
     ///
@@ -2427,7 +2427,7 @@ mod tests {
     }
 
     fn log(ctx: &mut Ctx, s: &str) {
-        let line = format!("{s} dt={:.4}", ctx.dt());
+        let line = format!("{s} dt={:.4}", ctx.time.dt());
         ctx.world.resource_mut::<Log>().0.push(line);
     }
 

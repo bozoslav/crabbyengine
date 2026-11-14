@@ -70,7 +70,7 @@ impl Transform2D {
 /// ```
 /// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx) {
-/// let crab = ctx.load_texture("crab.png");
+/// let crab = ctx.gfx.load_texture("crab.png");
 /// ctx.world.spawn((
 ///     ponko::d2::Transform::at(vec2(400.0, 300.0)),
 ///     ponko::d2::Sprite::new(crab).with_color(Color::RED).with_z(1.0),

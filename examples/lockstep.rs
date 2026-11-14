@@ -36,11 +36,11 @@ fn read_keys(ctx: &mut Ctx) {
         (Key::Up, -Vec2::Y),
         (Key::Down, Vec2::Y),
     ] {
-        if ctx.key_down(key) {
+        if ctx.input.key_down(key) {
             pad.dir += d;
         }
     }
-    pad.shove = ctx.key_down(Key::Space);
+    pad.shove = ctx.input.key_down(Key::Space);
     ctx.net.set_input(&pad);
 }
 // ANCHOR_END: input
@@ -59,7 +59,7 @@ fn move_crabs(ctx: &mut Ctx) {
     let pads: Vec<Pad> = (0..ctx.net.players())
         .map(|p| ctx.net.input::<Pad>(p).unwrap_or_default())
         .collect();
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     let crabs: Vec<(Entity, Vec2, u32)> = ctx
         .world
         .query::<(Entity, &d2::Transform, &Crab)>()
@@ -110,18 +110,18 @@ fn draw(ctx: &mut Ctx) {
         NetState::Offline => "offline".into(),
         _ => String::new(),
     };
-    ctx.draw_text(&status, vec2(20.0, 20.0), 20.0, Color::WHITE);
+    ctx.gfx.draw_text(&status, vec2(20.0, 20.0), 20.0, Color::WHITE);
     #[cfg(feature = "steam")]
     if ctx.net.state() == NetState::Connecting
         && let Some(lobby) = ctx.net.steam_lobby()
     {
         let text = format!("Steam lobby {}: press I to invite a friend", lobby.raw());
-        ctx.draw_text(&text, vec2(20.0, 50.0), 20.0, Color::WHITE);
-        if ctx.key_pressed(Key::I) {
+        ctx.gfx.draw_text(&text, vec2(20.0, 50.0), 20.0, Color::WHITE);
+        if ctx.input.key_pressed(Key::I) {
             ctx.net.steam_invite();
         }
     }
-    if ctx.key_pressed(Key::Escape) {
+    if ctx.input.key_pressed(Key::Escape) {
         ctx.quit();
     }
 }

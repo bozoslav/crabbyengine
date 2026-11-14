@@ -16,7 +16,7 @@ use ponko::prelude::*;
 /// Every crab turns. Try a different speed, or `-=` to turn the other way.
 // ANCHOR: spin
 fn spin(ctx: &mut Ctx) {
-    let dt = ctx.dt();
+    let dt = ctx.time.dt();
     for t in ctx.world.query::<&mut d2::Transform>().iter() {
         t.rotation += -6.0 * dt;
     }
@@ -53,7 +53,7 @@ fn main() {
         .sim_system(wobble)
         .sim_system(report)
         .setup(|ctx| {
-            let crab = ctx.load_texture("crab.png");
+            let crab = ctx.gfx.load_texture("crab.png");
             for i in 0..12 {
                 let at = vec2(160.0 + (i % 6) as f32 * 190.0, 220.0 + (i / 6) as f32 * 280.0);
                 ctx.world
