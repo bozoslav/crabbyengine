@@ -18,6 +18,8 @@ mod gpu;
 mod gpu3d;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod lights;
+#[cfg(feature = "window")]
+mod lights2d;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod mips;
 #[cfg(not(feature = "window"))]
@@ -375,6 +377,8 @@ mod gi_render_test;
 mod handle_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod light_shadow_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod lights2d_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lights_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]
