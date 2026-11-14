@@ -1260,11 +1260,9 @@ impl Ui {
                             let font = if external_fonts { n.paint.font } else { Font::DEFAULT };
                             let width = known.width.unwrap_or_else(|| match available.width {
                                 AvailableSpace::Definite(w) if n.paint.wrap => size.x.min(w.max(0.0)),
-                                AvailableSpace::MinContent if n.paint.wrap => n
-                                    .text
-                                    .split_whitespace()
-                                    .map(|word| text.layout(word, font, n.paint.font_size, false).x)
-                                    .fold(0.0, f32::max),
+                                AvailableSpace::MinContent if n.paint.wrap => {
+                                    text.min_content_width(&n.text, font, n.paint.font_size)
+                                }
                                 _ => size.x,
                             });
                             let mut height = 0.0;
@@ -1615,22 +1613,10 @@ impl Ui {
             Font::DEFAULT
         };
         let x = (p.x - n.rect.min.x) / self.scale - layout.padding.left - layout.border.left;
-        let caret_x = self
-            .measure
-            .layout(&n.text[..n.caret], font, n.paint.font_size, false)
-            .x;
+        let caret_x = self.measure.caret_x(&n.text, font, n.paint.font_size, n.caret);
         let available = n.rect.size().x / self.scale - layout.padding.left - layout.padding.right;
         let target = x + (caret_x - available + 3.0).max(0.0);
-        let mut prev = 0.0;
-        for (i, ch) in n.text.char_indices() {
-            let next = i + ch.len_utf8();
-            let width = self.measure.layout(&n.text[..next], font, n.paint.font_size, false).x;
-            if target < (prev + width) * 0.5 {
-                return i;
-            }
-            prev = width;
-        }
-        n.text.len()
+        self.measure.hit(&n.text, font, n.paint.font_size, target)
     }
     fn edit(&mut self, input: &UiInput) {
         let id = self.focus.unwrap();
@@ -1723,6 +1709,9 @@ pub(super) fn intersect(a: Rect, b: Rect) -> Rect {
 }
 
 pub(super) fn wrap_end(text: &mut crate::text::Text, line: &str, font: Font, size: f32, width: f32) -> usize {
+    if let Some(end) = text.wrap_end_shaped_or_none(line, font, size, width) {
+        return end;
+    }
     let mut space = None;
     for (i, ch) in line.char_indices() {
         if ch.is_whitespace() {

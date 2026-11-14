@@ -419,6 +419,8 @@ mod static_batch_render_test;
 mod target_effect_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;
+#[cfg(all(test, feature = "window", feature = "3d", feature = "text-shaping"))]
+mod text_shaping_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod ui_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]

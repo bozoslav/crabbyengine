@@ -407,6 +407,9 @@ using rect = PonkoRect;
 using font = PonkoFont;
 /// Alignment within a world text block.
 enum class text_align3d : uint32_t { left = 0, center = 1, right = 2 };
+/// Which strings are shaped (Rust `TextShaping`), for ctx::set_text_shaping: `automatic` shapes every
+/// non-ASCII string and keeps ASCII on the per-character fast path; `always` shapes ASCII too (ligatures).
+enum class text_shaping : uint32_t { automatic = PONKO_TEXT_SHAPING_AUTO, always = PONKO_TEXT_SHAPING_ALWAYS };
 /// Where a system runs in the loop, in this order. `input` through `sim_last`
 /// run once per fixed tick (also headless); `frame` through `draw` once per
 /// rendered frame. sim_system uses after_physics, system frame, late_system late.
@@ -5775,6 +5778,30 @@ public:
     /// The size in pixels draw_text would cover with font `f` at `size`. Throws ponko::error for an unknown
     /// or freed font.
     vec2 measure_text(const char* text, font f, float size) { vec2 v{}; detail::check(ponko_ctx_measure_text_ex(raw_, text, f, size, &v)); return v; }
+    /// Sets the fonts tried, in order, for characters `f` has no glyph for (Rust `set_font_fallbacks`); an
+    /// empty list turns fallback off. Throws ponko::error for a font this game didn't load.
+    void set_font_fallbacks(font f, const std::vector<font>& fallbacks) { detail::check(ponko_ctx_set_font_fallbacks(raw_, f, fallbacks.data(), fallbacks.size())); }
+    /// `f`'s fallback chain, with the system fonts found for it (Rust `font_fallbacks`).
+    std::vector<font> font_fallbacks(font f) const {
+        std::size_t n = 0;
+        detail::check(ponko_ctx_font_fallbacks(raw_, f, nullptr, 0, &n));
+        std::vector<font> out(n);
+        if (n > 0) detail::check(ponko_ctx_font_fallbacks(raw_, f, out.data(), out.size(), &n));
+        return out;
+    }
+    /// Sets which strings are shaped (Rust `set_text_shaping`); needs the library's `text-shaping` feature,
+    /// on by default.
+    void set_text_shaping(ponko::text_shaping mode) { detail::check(ponko_ctx_set_text_shaping(raw_, static_cast<std::uint32_t>(mode))); }
+    /// Which strings are shaped; text_shaping::automatic unless set.
+    ponko::text_shaping text_shaping() const { std::uint32_t m = 0; detail::check(ponko_ctx_text_shaping(raw_, &m)); return static_cast<ponko::text_shaping>(m); }
+    /// Loads a font installed on the computer by family name ("Arial"); throws ponko::error (kind not_found,
+    /// or unsupported without the library's `system-fonts` feature) if it can't.
+    font load_system_font(const char* family) { return try_load_system_font(family).value(); }
+    /// Loads a system font, or says why not, without throwing (Rust `try_load_system_font`).
+    result<font> try_load_system_font(const char* family) { font f{}; const PonkoStatus status = ponko_ctx_try_load_system_font(raw_, family, &f); return detail::attempt(status, f); }
+    /// With `on`, characters no loaded font has are looked up among the computer's fonts (Rust
+    /// `set_system_font_fallback`). Returns whether this build can search them.
+    bool set_system_font_fallback(bool on) { bool available = false; detail::check(ponko_ctx_set_system_font_fallback(raw_, on, &available)); return available; }
 
     // UI widgets (screen space), styled by ui_style().
     /// The immediate-mode UI style.

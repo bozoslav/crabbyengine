@@ -1752,15 +1752,22 @@ pub fn ponko::gfx::Graphics::draw_line(&mut self, glam::f32::vec2::Vec2, glam::f
 pub fn ponko::gfx::Graphics::draw_rect(&mut self, ponko::camera::Rect, ponko::color::Color)
 pub fn ponko::gfx::Graphics::draw_text(&mut self, &str, glam::f32::vec2::Vec2, f32, ponko::color::Color)
 pub fn ponko::gfx::Graphics::draw_text_ex(&mut self, &str, glam::f32::vec2::Vec2, ponko::text::TextParams)
+pub fn ponko::gfx::Graphics::font_fallbacks(&self, ponko::text::Font) -> &[ponko::text::Font]
 pub fn ponko::gfx::Graphics::gpu_capabilities(&self) -> core::option::Option<&ponko::render::GpuCapabilities>
 pub fn ponko::gfx::Graphics::load_font(&mut self, &str) -> ponko::text::Font
+pub fn ponko::gfx::Graphics::load_system_font(&mut self, &str) -> ponko::text::Font
 pub fn ponko::gfx::Graphics::load_texture(&mut self, &str) -> ponko::texture::Texture
 pub fn ponko::gfx::Graphics::measure_text(&mut self, &str, f32) -> glam::f32::vec2::Vec2
 pub fn ponko::gfx::Graphics::measure_text_ex(&mut self, &str, ponko::text::Font, f32) -> glam::f32::vec2::Vec2
 pub fn ponko::gfx::Graphics::save_screenshot(&mut self, impl core::convert::Into<std::path::PathBuf>)
+pub fn ponko::gfx::Graphics::set_font_fallbacks(&mut self, ponko::text::Font, &[ponko::text::Font])
+pub fn ponko::gfx::Graphics::set_system_font_fallback(&mut self, bool) -> bool
+pub fn ponko::gfx::Graphics::set_text_shaping(&mut self, ponko::text::TextShaping)
 pub fn ponko::gfx::Graphics::set_texture_filter(&mut self, ponko::texture::Texture, ponko::texture::TextureFilter)
 pub fn ponko::gfx::Graphics::sprite_count(&self) -> usize
+pub fn ponko::gfx::Graphics::text_shaping(&self) -> ponko::text::TextShaping
 pub fn ponko::gfx::Graphics::try_load_font(&mut self, &str) -> core::result::Result<ponko::text::Font, ponko::error::Error>
+pub fn ponko::gfx::Graphics::try_load_system_font(&mut self, &str) -> core::result::Result<ponko::text::Font, ponko::error::Error>
 pub fn ponko::gfx::Graphics::try_load_texture(&mut self, &str) -> core::result::Result<ponko::texture::Texture, ponko::error::Error>
 pub fn ponko::gfx::Graphics::update_texture(&mut self, ponko::texture::Texture, &[u8])
 impl ponko::gfx::Graphics
@@ -4471,6 +4478,22 @@ pub fn ponko::actions::PressedInput::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::actions::PressedInput
 pub fn ponko::actions::PressedInput::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::actions::PressedInput
+#[repr(u32)] pub enum ponko::prelude::TextShaping
+pub ponko::prelude::TextShaping::Always = 1
+pub ponko::prelude::TextShaping::Auto = 0
+impl core::clone::Clone for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::clone(&self) -> Self
+impl core::cmp::Eq for ponko::text::TextShaping
+impl core::cmp::PartialEq for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::default() -> Self
+impl core::fmt::Debug for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::text::TextShaping
+impl core::marker::StructuralPartialEq for ponko::text::TextShaping
 pub enum ponko::prelude::TextureFilter
 pub ponko::prelude::TextureFilter::Linear
 pub ponko::prelude::TextureFilter::Nearest
@@ -6394,6 +6417,22 @@ pub fn ponko::systems::follow_attachments(&mut ponko::prelude::Ctx)
 pub fn ponko::systems::rebuild_spatial_grid(&mut ponko::prelude::Ctx)
 pub fn ponko::systems::update_particles(&mut ponko::prelude::Ctx)
 pub mod ponko::text
+#[repr(u32)] pub enum ponko::text::TextShaping
+pub ponko::text::TextShaping::Always = 1
+pub ponko::text::TextShaping::Auto = 0
+impl core::clone::Clone for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::clone(&self) -> Self
+impl core::cmp::Eq for ponko::text::TextShaping
+impl core::cmp::PartialEq for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::default() -> Self
+impl core::fmt::Debug for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::text::TextShaping
+pub fn ponko::text::TextShaping::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::text::TextShaping
+impl core::marker::StructuralPartialEq for ponko::text::TextShaping
 #[repr(transparent)] pub struct ponko::text::Font(_)
 impl ponko::text::Font
 pub const ponko::text::Font::DEFAULT: ponko::text::Font

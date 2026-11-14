@@ -275,6 +275,11 @@ jobs:
           - name: engine with every image format
             scope: -p ponko
             args: --no-default-features --features window,image-formats
+          # Text shaping without the inspector (whose egui otherwise brings
+          # the same shaper in), with the system font lookup.
+          - name: engine with text shaping and system fonts
+            scope: -p ponko
+            args: --no-default-features --features window,system-fonts
           # On Linux this lints the feature's shared code and the path that
           # does nothing; the macOS adapter itself is linted in the feature
           # tests' macOS leg (a second macOS runner per pull request would
@@ -417,7 +422,7 @@ jobs:
       # These features match the workspace test union from FFI and benchmarks.
       # Shards reuse these binaries and runtime DLLs without recompiling.
       - name: Archive unit and render tests
-        run: cargo nextest archive -p ponko --lib --features physics,physics3d,navmesh --archive-file target/windows-unit.tar.zst
+        run: cargo nextest archive -p ponko --lib --features physics,physics3d,navmesh,text-shaping --archive-file target/windows-unit.tar.zst
       - uses: actions/upload-artifact@v7
         with:
           name: windows-unit-tests
@@ -603,6 +608,13 @@ jobs:
           cargo test -p ponko --no-fail-fast --features 3d,basis-universal --test compressed_textures
           cargo test -p ponko --no-fail-fast --features 3d,basis-universal --lib compressed::
           cargo test -p ponko_ffi --no-fail-fast --features compressed-textures --test compressed_textures
+      # Shaped text, fallback chains and the system font search, with the
+      # offscreen reference images of shaped text where a GPU is found.
+      - name: Tests, text shaping and system fonts
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test -p ponko --no-fail-fast --features 3d,system-fonts --test text_shaping
+          cargo test -p ponko --no-fail-fast --features 3d,system-fonts --lib text
       # Systems called through subsecond's jump table (no dx attached) behave the same.
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
@@ -940,6 +952,9 @@ jobs:
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d,basis-universal
       # The accessibility feature has no web adapter: it must build and do nothing.
       - run: cargo check -p ponko --target wasm32-unknown-unknown --features accessibility
+      # Shaping works in the browser; system fonts build and report that the
+      # web has none.
+      - run: cargo check -p ponko --target wasm32-unknown-unknown --features system-fonts
       - name: Find the wasm-bindgen version in Cargo.lock
         run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@v2
