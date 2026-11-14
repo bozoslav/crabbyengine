@@ -5604,6 +5604,11 @@ enum PonkoStatus ponko_ctx_preedit(struct PonkoCtx *ctx,
                                    size_t capacity,
                                    size_t *out_len);
 
+enum PonkoStatus ponko_ctx_typed_text(struct PonkoCtx *ctx,
+                                      char *buffer,
+                                      size_t capacity,
+                                      size_t *out_len);
+
 enum PonkoStatus ponko_ctx_preedit_cursor(struct PonkoCtx *ctx,
                                           bool *out_has,
                                           size_t *out_start,

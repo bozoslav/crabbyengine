@@ -5,7 +5,8 @@
 //! `gamepad_down`), what changed this frame (`*_pressed`, `*_released`),
 //! pointer position and movement, gamepad axes, the
 //! [`ActionMap`](crate::actions::ActionMap) and its queries (`action_down`,
-//! `action_axis`, ...), text typed this frame, and the cursor lock.
+//! `action_axis`, ...), text typed this frame, IME composition
+//! ([`ImeEvent`], `preedit`, `set_ime_allowed`), and the cursor lock.
 //!
 //! **When to call it:** in any system. Edges (`pressed`, `released`, wheel,
 //! typed text) last one frame and are cleared after the frame's systems; a

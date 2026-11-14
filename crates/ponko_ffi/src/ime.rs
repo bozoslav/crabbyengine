@@ -1,4 +1,4 @@
-//! IME composition (#410): the C side of Rust's `Input::feed_ime`,
+//! IME composition (#410): the C side of Rust's `Input::typed_text`, `feed_ime`,
 //! `preedit`, `preedit_cursor`, `composing`, `set_ime_allowed`,
 //! `ime_allowed`, `set_ime_cursor_area`, `ime_cursor_area` and
 //! `cancel_composition`; the retained UI's `set_ime_allowed`,
@@ -157,6 +157,29 @@ pub unsafe extern "C" fn ponko_ctx_preedit(
     boundary(|| unsafe {
         check_output(buffer, capacity, out_len)?;
         ctx_access(ctx, |c| copy_string(c.input.preedit(), buffer, capacity, out_len))
+    })
+}
+
+/// The text typed this frame (Rust's `input.typed_text`): committed
+/// Unicode from the keyboard and from IME commits, NUL-terminated into
+/// `buffer` as `ponko_ctx_preedit` does. For a game's own text widgets.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_typed_text(std::ptr::null_mut(), std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `buffer` writable for `capacity` bytes (or null with
+/// capacity 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_typed_text(
+    ctx: *mut PonkoCtx,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> PonkoStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        check_output(buffer, capacity, out_len)?;
+        ctx_access(ctx, |c| copy_string(c.input.typed_text(), buffer, capacity, out_len))
     })
 }
 

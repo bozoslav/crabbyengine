@@ -4796,6 +4796,10 @@ public:
 
     // IME composition (Rust `input.feed_ime`, `preedit`, `set_ime_allowed`, ...). The retained UI's text
     // inputs do all of this themselves; these are for a game's own text widgets, custom hosts and tests.
+    /// The text typed this frame: committed Unicode from the keyboard and from IME commits.
+    std::string typed_text() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return ponko_ctx_typed_text(raw_, b, c, l); });
+    }
     /// Records an IME step as the window system would; a commit's text is typed.
     void feed_ime(const ime_event& e) { detail::check(ponko_ctx_feed_ime(raw_, &e)); }
     /// The text being composed, not yet committed; empty when nothing is.

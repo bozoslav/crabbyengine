@@ -105,6 +105,7 @@ unsafe fn input_side(ctx: Ctx) {
             ponko_ctx_feed_ime(ctx, &event(PONKO_IME_COMMIT, c"日本", None)),
             PONKO_OK
         );
+        assert_eq!(read(|b, c, l| ponko_ctx_typed_text(ctx, b, c, l)), "日本");
         assert_eq!(read(|b, c, l| ponko_ctx_preedit(ctx, b, c, l)), "");
         assert_eq!(ponko_ctx_preedit_cursor(ctx, &mut has, &mut start, &mut end), PONKO_OK);
         assert!(!has);
