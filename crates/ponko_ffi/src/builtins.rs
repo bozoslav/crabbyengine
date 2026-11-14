@@ -43,9 +43,10 @@ fn builtin_access(id: u32) -> Result<SystemAccess, Failure> {
     })
 }
 
-/// Adds built-in `id` to `g` in `p`, with its declaration where it has one.
-fn add_builtin(g: Game, p: Phase, id: u32) -> Result<Game, (Game, Failure)> {
-    Ok(match id {
+/// Adds built-in `id` to `g` in `p`, with its declaration where it has one;
+/// an unknown id leaves `g` as it was and says why.
+fn add_builtin(g: Game, p: Phase, id: u32) -> (Game, Result<(), Failure>) {
+    let g = match id {
         #[cfg(feature = "physics")]
         PONKO_SYSTEM_PHYSICS => g.add(p, systems::step_physics.access(systems::step_physics_access())),
         #[cfg(feature = "physics3d")]
@@ -70,9 +71,10 @@ fn add_builtin(g: Game, p: Phase, id: u32) -> Result<Game, (Game, Failure)> {
             let why = builtin_access(id)
                 .err()
                 .unwrap_or_else(|| invalid("not a PONKO_SYSTEM_* built-in"));
-            return Err((g, why));
+            return (g, Err(why));
         }
-    })
+    };
+    (g, Ok(()))
 }
 
 /// Adds built-in system `system_id` (a `PONKO_SYSTEM_*` constant) to
@@ -87,8 +89,8 @@ fn add_builtin(g: Game, p: Phase, id: u32) -> Result<Game, (Game, Failure)> {
 /// without, is `PONKO_INVALID_ARGUMENT`.
 /// ```
 /// use ponko_ffi::*;
-/// let g = ponko_game_new(c"t".as_ptr(), 1, 1);
 /// unsafe {
+///     let g = ponko_game_new(c"t".as_ptr(), 1, 1);
 ///     assert_eq!(ponko_game_remove(g, PONKO_SYSTEM_DRAW_TILEMAPS), PonkoStatus::PONKO_OK);
 ///     assert_eq!(ponko_game_add_builtin(g, PonkoPhase::PONKO_PHASE_DRAW as u32, PONKO_SYSTEM_DRAW_TILEMAPS), PonkoStatus::PONKO_OK);
 ///     ponko_game_free(g);
@@ -103,12 +105,7 @@ pub unsafe extern "C" fn ponko_game_add_builtin(game: *mut PonkoGame, phase_raw:
         Err(e) => return boundary(|| Err(e)),
     };
     // SAFETY: forwarded caller contract.
-    unsafe {
-        build(game, |g| match add_builtin(g, p, system_id) {
-            Ok(g) => (g, Ok(())),
-            Err((g, e)) => (g, Err(e)),
-        })
-    }
+    unsafe { build(game, |g| add_builtin(g, p, system_id)) }
 }
 
 /// What built-in system `system_id` (a `PONKO_SYSTEM_*` constant) declares

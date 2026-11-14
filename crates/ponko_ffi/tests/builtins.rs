@@ -145,7 +145,7 @@ fn builtin_declarations_say_what_the_steps_touch() {
         assert!(count(draw, nothing) > 0);
         ponko_access_free(draw);
 
-        let mut unknown = 1 as *mut PonkoAccess;
+        let mut unknown = std::ptr::dangling_mut::<PonkoAccess>();
         assert_eq!(ponko_builtin_access(999, &mut unknown), PONKO_INVALID_ARGUMENT);
         assert!(unknown.is_null());
         assert_eq!(
