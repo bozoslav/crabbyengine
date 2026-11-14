@@ -601,6 +601,7 @@ static void levels_guide(ponko::ctx& ctx) {
     const ponko::entity again = load_meadow(ctx);
     if (ponko::level_entities(ctx, again).size() > parts) { std::fprintf(stderr, "level saves\n"); std::abort(); }
     ponko::despawn_level(ctx, again);
+    ctx.storage_delete("saves/meadow.json"); // the storage guide shares the folder
 }
 
 // ---- Camera, text and UI ---------------------------------------------------------
