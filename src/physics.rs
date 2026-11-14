@@ -83,7 +83,7 @@ impl RigidBody {
 }
 
 /// Most corners a [`Shape::Polygon`] can have.
-pub const MAX_POLYGON_POINTS: usize = 8;
+pub(crate) const MAX_POLYGON_POINTS: usize = 8;
 
 /// A collider's shape, in pixels, centered on the entity (plus
 /// [`Collider::offset`]) and turned with it.
@@ -119,6 +119,13 @@ pub enum Shape {
 }
 
 impl Shape {
+    /// Most corners a [`Shape::Polygon`] can have.
+    ///
+    /// ```
+    /// assert_eq!(ponko::d2::Shape::MAX_POLYGON_POINTS, 8);
+    /// ```
+    pub const MAX_POLYGON_POINTS: usize = MAX_POLYGON_POINTS;
+
     /// A polygon's corners (empty for other shapes).
     ///
     /// ```

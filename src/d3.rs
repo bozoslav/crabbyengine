@@ -73,7 +73,7 @@ pub use crate::nav::{NavAgent, NavMesh, NavObstacle};
 #[doc(no_inline)]
 pub use crate::particles::{ParticleCurve, ParticleGradient, ParticleSpace};
 #[cfg(feature = "physics3d")]
-#[doc(no_inline)]
+#[doc(inline)]
 pub use crate::physics3d::{
     Character3D as Character, Collider3D as Collider, ColliderFocus, CollisionGroups, CollisionMesh, CollisionMeshData,
     CollisionMeshOptions, ContactModifier3D as ContactModifier, ContactPair3D as ContactPair, FrictionCurve,

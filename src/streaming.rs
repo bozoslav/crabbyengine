@@ -46,13 +46,13 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::assets::{self, Origin};
-pub use crate::residency::{ResidencyKind, ResidencyStats};
-use crate::{ctx::Ctx, texture::Texture};
 #[cfg(feature = "3d")]
 #[doc(inline)]
 pub use crate::jobs::CellStreamer;
 #[doc(inline)]
 pub use crate::jobs::Job;
+pub use crate::residency::{ResidencyKind, ResidencyStats};
+use crate::{ctx::Ctx, texture::Texture};
 use ponko_ecs::World;
 
 /// The longest side of a streamed texture's stand-in.

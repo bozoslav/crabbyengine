@@ -25,7 +25,7 @@ pub use crate::particles::{
     ParticleShape2D as ParticleShape, ParticleSpace,
 };
 #[cfg(feature = "physics")]
-#[doc(no_inline)]
+#[doc(inline)]
 pub use crate::physics::{Collider, Physics, QueryFilter, RayHit as Hit, RigidBody, Shape, Velocity};
 #[doc(no_inline)]
 pub use crate::sheet::{Animation, SpriteSheet};

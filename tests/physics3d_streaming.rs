@@ -14,7 +14,7 @@ use ponko::d3::Transform;
 use ponko::d3::{Character, Collider, QueryFilter, RigidBody};
 #[allow(unused_imports)]
 #[cfg(feature = "physics3d")]
-use ponko::physics3d::{ColliderFocus, CollisionMeshData, TerrainCollider};
+use ponko::d3::{ColliderFocus, CollisionMeshData, TerrainCollider};
 use ponko::prelude::*;
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]

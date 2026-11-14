@@ -41,8 +41,9 @@
 //! - [`input`] and [`actions`]: keys, mouse, gamepads and rebindable actions.
 //! - [`ui`] and [`text`]: the retained UI, fonts and text layout.
 //! - [`audio`]: sound effects and music.
-//! - `physics` and `physics3d` (features of the same names): rigid bodies,
-//!   colliders and queries; [`nav`] for pathfinding and navigation meshes.
+//! - [`d2`] and [`d3`]: the types of each dimension, physics among them
+//!   (features `physics` and `physics3d`); [`nav`] and [`flow`] for
+//!   pathfinding and navigation meshes.
 //! - [`assets`] and [`streaming`]: asset files, GPU asset loading with
 //!   budgets, background jobs and streaming big worlds.
 //! - [`net`]: networking: lockstep, messages and snapshot replication.
@@ -185,12 +186,13 @@ mod nav3d;
 pub mod net;
 pub mod particles;
 
+mod jobs;
 pub mod perf;
 mod perf_report;
 #[cfg(feature = "physics")]
-pub mod physics;
+mod physics;
 #[cfg(feature = "physics3d")]
-pub mod physics3d;
+mod physics3d;
 mod profiler;
 #[cfg(any(all(target_arch = "wasm32", feature = "window"), test))]
 mod query;
@@ -207,7 +209,6 @@ pub mod sheet;
 pub mod spatial;
 mod sprite_material;
 pub mod storage;
-mod jobs;
 /// Deprecated: [`Job`](crate::streaming::Job) and `CellStreamer` moved to
 /// [`streaming`](crate::streaming), next to the asset streaming they work with.
 pub mod stream {

@@ -544,7 +544,7 @@ mod three {
 
 #[cfg(feature = "physics3d")]
 mod collision {
-    use ponko::physics3d::CollisionMesh;
+    use ponko::d3::CollisionMesh;
 
     use super::*;
 

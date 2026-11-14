@@ -220,7 +220,7 @@ lists every removed name with its replacement. Moving off them:
   `render::GlobalIllumination::MAX_PROBES` and `MAX_PROBES_PER_FRAME`.
   Constants that belong to one module keep their name there
   (`net::MAX_PLAYERS`, `input::MAX_GAMEPADS`, `random::DEFAULT_SEED`,
-  `physics3d::PHYSICS3D_HZ`, `scenario::SCENARIO_VERSION`,
+  `d3::Physics::HZ`, `scenario::SCENARIO_VERSION`,
   `streaming::DEFAULT_UPLOAD_BUDGET`).
 - Crates and helpers: `serde_json` is `reflect::json` (and `Value` is
   `reflect::json::Value`; `json!` stays in the prelude), `steamworks` is

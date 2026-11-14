@@ -25,12 +25,12 @@ use ponko_ecs::{Component, Entity, World};
 ///
 /// ```
 /// use ponko::prelude::*;
-/// let grip = ponko::physics3d::FrictionCurve::FORWARD;
+/// let grip = ponko::d3::FrictionCurve::FORWARD;
 /// assert_eq!(grip.evaluate(0.0), 0.0);
 /// assert_eq!(grip.evaluate(grip.extremum_slip), 1.0); // the peak
 /// assert_eq!(grip.evaluate(5.0), 0.5); // sliding
-/// let icy = ponko::physics3d::FrictionCurve { stiffness: 0.2, ..ponko::physics3d::FrictionCurve::SIDEWAYS };
-/// assert!(icy.evaluate(0.1) < ponko::physics3d::FrictionCurve::SIDEWAYS.evaluate(0.1));
+/// let icy = ponko::d3::FrictionCurve { stiffness: 0.2, ..ponko::d3::FrictionCurve::SIDEWAYS };
+/// assert!(icy.evaluate(0.1) < ponko::d3::FrictionCurve::SIDEWAYS.evaluate(0.1));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

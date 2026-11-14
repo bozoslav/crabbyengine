@@ -1410,7 +1410,7 @@ impl Game {
     /// [`CollisionStarted`](crate::collision::CollisionStarted) events; `ctx.physics3d`
     /// casts rays and shapes and finds overlaps.
     ///
-    /// The simulation runs at [`PHYSICS3D_HZ`](crate::physics3d::PHYSICS3D_HZ) (50)
+    /// The simulation runs at [`Physics::HZ`](crate::d3::Physics::HZ) (50)
     /// ticks per second unless [`fixed_hz`](Self::fixed_hz) chose a rate;
     /// in a window, moving bodies are drawn blended between ticks
     /// ([`interpolate_physics3d`](crate::systems::interpolate_physics3d), a

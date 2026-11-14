@@ -42,7 +42,7 @@ pub use vehicle::{FrictionCurve, Vehicle3D, Wheel3D};
 /// The simulation rate [`Game::physics3d`](crate::game::Game::physics3d) sets,
 /// unless the game picked its own with
 /// [`Game::fixed_hz`](crate::game::Game::fixed_hz): 50 steps per second.
-pub const PHYSICS3D_HZ: u32 = 50;
+pub(crate) const PHYSICS3D_HZ: u32 = 50;
 
 /// Makes an entity a 3D physics body. It also needs a [`Collider3D`] and a
 /// [`Transform3D`].
@@ -235,9 +235,9 @@ pub enum Shape3D {
 /// const PLAYER: u32 = 1 << 0;
 /// const DEBRIS: u32 = 1 << 1;
 /// // Debris hits everything except other debris.
-/// let debris = ponko::physics3d::CollisionGroups::new(DEBRIS, !DEBRIS);
+/// let debris = ponko::d3::CollisionGroups::new(DEBRIS, !DEBRIS);
 /// assert!(!debris.touches(debris));
-/// assert!(debris.touches(ponko::physics3d::CollisionGroups::new(PLAYER, u32::MAX)));
+/// assert!(debris.touches(ponko::d3::CollisionGroups::new(PLAYER, u32::MAX)));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(C)]
@@ -590,6 +590,15 @@ pub(crate) fn pose_to_rp(position: Vec3, rotation: Quat) -> rp::Pose {
 }
 
 impl Physics3D {
+    /// The simulation rate [`Game::physics3d`](crate::game::Game::physics3d)
+    /// sets, unless the game picked its own with
+    /// [`Game::fixed_hz`](crate::game::Game::fixed_hz): 50 steps per second.
+    ///
+    /// ```
+    /// assert_eq!(ponko::d3::Physics::HZ, 50);
+    /// ```
+    pub const HZ: u32 = PHYSICS3D_HZ;
+
     /// Physics pulling everything by `gravity` (meters/s²; `vec3(0.0, -9.81, 0.0)`
     /// is Earth's).
     #[must_use]
