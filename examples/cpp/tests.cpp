@@ -3169,6 +3169,61 @@ static void levels_and_tilemaps() {
     });
 }
 
+// A menu that opens on Play, a HUD that Escape leaves up, and a glTF floor
+// made solid in one call.
+static void focus_huds_and_collision_files() {
+    const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-solid-floor.gltf";
+    std::ofstream(file) << R"({"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
+        "nodes": [{"mesh": 0}],
+        "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1}]}],
+        "buffers": [{"byteLength": 60, "uri": "data:application/octet-stream;base64,AAAAwAAAAAAAAABAAAAAQAAAAAAAAABAAAAAQAAAAAAAAADAAAAAwAAAAAAAAADAAAABAAIAAAACAAMA"}],
+        "bufferViews": [{"buffer": 0, "byteLength": 48}, {"buffer": 0, "byteOffset": 48, "byteLength": 12}],
+        "accessors": [{"bufferView": 0, "componentType": 5126, "count": 4, "type": "VEC3", "min": [-2, 0, -2], "max": [2, 0, 2]},
+            {"bufferView": 1, "componentType": 5123, "count": 6, "type": "SCALAR"}]})";
+    const std::string path = file.string();
+    ponko::game("focus and huds", 1, 1).physics3d({0, -9.81f, 0}).run_headless(0, [&](ponko::ctx& ctx) {
+        auto ui = ctx.ui_retained();
+        const ponko::vec2 window{800, 600};
+        namespace u = ponko::ui;
+        auto hud = ui.add_panel(u::none, u::layout().size(300, 40));
+        auto count = ui.add_label(hud, "0 / 5", u::layout().size(120, 30));
+        ui.show_hud(hud);
+        CHECK(ui.is_hud(hud) && ui.is_shown(count) && !ui.wants_keyboard());
+        throws([&] { ui.push_screen(hud); });
+
+        auto menu = ui.add_panel(u::none, u::layout().column().size(300, 200));
+        auto quit = ui.add_button(menu, "Quit", u::layout().size(120, 40).shrink(0));
+        auto play = ui.add_button(menu, "Play", u::layout().size(120, 40).shrink(0));
+        ui.set_initial_focus(play);
+        ui.push_screen(menu, true);
+        CHECK(ui.focus() == play);
+        auto enter = u::default_input();
+        enter.confirm = true;
+        ui.frame(window, enter);
+        auto events = ui.events();
+        CHECK(events.size() == 1 && events[0].kind == u::event_kind::clicked && events[0].node == play);
+        ui.set_focus(quit);
+        CHECK(ui.focus() == quit);
+        throws([&] { ui.set_focus(count); });
+        ui.clear_focus();
+        CHECK(!ui.focus());
+
+        auto escape = u::default_input();
+        escape.cancel = true;
+        ui.frame(window, escape);
+        CHECK(!ui.is_shown(play) && ui.is_shown(count));
+        ui.hide_hud(hud);
+        CHECK(!ui.is_hud(hud) && !ui.is_shown(count));
+
+        auto floor = ctx.load_collision_mesh(path.c_str());
+        CHECK(ctx.load_collision_mesh(path.c_str()).id == floor.id);
+        CHECK(ctx.load_collision_mesh(path.c_str(), {2, 1, 2}).id != floor.id);
+        throws([&] { ctx.load_collision_mesh(path.c_str(), {1, 1, 1}, true); });
+        throws([&] { ctx.load_collision_mesh("no/such.glb"); });
+    });
+    std::filesystem::remove(file);
+}
+
 int main() {
     levels_and_tilemaps();
     abi_version_is_checked();
@@ -3230,5 +3285,6 @@ int main() {
     native_coverage();
     wrapper_coverage();
     headless_frames_ui();
+    focus_huds_and_collision_files();
     std::cout << "C++ wrapper tests passed\n";
 }
