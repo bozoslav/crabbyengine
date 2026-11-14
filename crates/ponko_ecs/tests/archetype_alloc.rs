@@ -284,21 +284,26 @@ impl Walk {
 
 #[test]
 fn walking_through_more_component_sets_than_are_kept_stops_allocating() {
-    let (walkers, still) = if cfg!(miri) { (2, 3) } else { (6, 100) };
+    // Miri checks the unsafe code on a short walk; the counts need a long one.
+    let (walkers, still, settle, measured) = if cfg!(miri) { (2, 3, 2, 1) } else { (6, 100, 10, 4) };
     let mut walk = Walk::new(walkers, still);
-    // Two rounds of the walk: every archetype it needs has been built once,
-    // and every buffer and edge map has the size it will need.
-    for _ in 0..512 {
+    // Rounds of the walk until every archetype it needs has been built,
+    // and the storage kept for each width, every buffer and every edge map
+    // has the size it will need (the reclaiming sweep isn't in step with
+    // the walk, so that takes a few rounds).
+    for _ in 0..settle * 256 {
         walk.tick();
     }
     let slots = walk.world.raw_ref().archetypes().len();
     let allocations = allocations_in(|| {
-        for _ in 0..256 {
+        for _ in 0..measured * 256 {
             walk.tick();
         }
     });
-    assert_eq!(allocations, 0, "a settled round of the walk allocated");
-    // Reclaimed slots were reused: the walk passed through 256 sets in the
+    if !cfg!(miri) {
+        assert_eq!(allocations, 0, "settled rounds of the walk allocated");
+    }
+    // Reclaimed slots were reused: the walk passed through 256 sets in each
     // round, with no new slot.
     assert_eq!(walk.world.raw_ref().archetypes().len(), slots);
     assert!(slots < 256, "{slots} slots");

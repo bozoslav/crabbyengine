@@ -19,11 +19,17 @@
 //! **Reclaiming them (issue #347).** Such a world would also keep an
 //! archetype, with its buffers, for every combination it ever had. The
 //! policy: a world keeps at most [`KEEP_EMPTY`] empty archetypes, or as
-//! many as it has archetypes with entities if that is more. Past that, the
-//! archetype that has been empty the longest is reclaimed. A combination
-//! that empties and fills again soon is still among the newest empty ones
-//! and keeps its archetype, so it doesn't thrash, and the number of
-//! archetypes levels off at about twice the number with entities.
+//! many as it has archetypes with entities if that is more (pinned ones,
+//! below, not counted). Past that, a sweep over the slots reclaims empty
+//! archetypes, each the second time it finds it empty (a "second chance"
+//! clock): roughly, those empty longest go first. A combination that
+//! empties and fills again soon is marked anew each time it empties and
+//! keeps its archetype, so it doesn't thrash, and the number of archetypes
+//! levels off at about twice the number with entities. Emptying or filling
+//! an archetype only flips bits; the sweep runs while the world is over
+//! the policy. (A queue of empty archetypes, oldest first, did the same
+//! but cost about 3 ns on every move that empties an archetype, measured
+//! with `membership/transition`.)
 //!
 //! A reclaimed archetype's slot stays in `World::archetypes` with no
 //! components, rows or edges ("dead"), free for the next new component
@@ -63,8 +69,6 @@
 //! - Change detection keeps its stamps in the column buffers and its
 //!   removal logs by entity, so it names no archetype.
 
-use std::collections::VecDeque;
-
 use crate::storage::{BufferPool, Edge, Shell};
 
 /// Empty archetypes a world keeps whatever its size; see the module docs.
@@ -73,51 +77,47 @@ pub(crate) const KEEP_EMPTY: usize = 64;
 /// of the others: for small worlds that change often.
 const SCAN_LIST_AFTER: usize = 16;
 
-#[derive(Clone, Copy, Default)]
-struct Meta {
-    /// Times this slot's archetype became empty (or was created), to tell
-    /// a current entry of the empty queue from a stale one.
-    emptied: u32,
-    /// Never reclaimed.
-    pinned: bool,
-    /// Reclaimed: no components, free for reuse.
-    dead: bool,
-}
-
-/// Per-slot state of a world's archetypes. Indexed like `World::archetypes`.
+/// Per-slot state of a world's archetypes. Indexed like `World::archetypes`;
+/// the bitsets hold slot `a` in word `a / 64`, bit `a % 64`.
 #[derive(Default)]
 pub(crate) struct Slots {
-    /// Bit `a` (word `a / 64`, bit `a % 64`) is set exactly when archetype
-    /// `a` holds at least one entity. Every change of an archetype's length
-    /// between zero and not zero goes through [`filled`](Self::filled) or
-    /// [`emptied`](Self::emptied).
+    /// Slots in the world.
+    len: usize,
+    /// Set exactly when archetype `a` holds at least one entity. Every
+    /// change of an archetype's length between zero and not zero goes
+    /// through [`filled`](Self::filled) or [`emptied`](Self::emptied).
     occupied: Vec<u64>,
-    meta: Vec<Meta>,
+    /// Set when archetype `a` became empty (or was created) since the
+    /// reclaiming sweep last passed it: its second chance.
+    recent: Vec<u64>,
+    /// Never reclaimed.
+    pinned: Vec<u64>,
+    /// Reclaimed: no components, free for reuse (or, out of generations,
+    /// never used again).
+    dead: Vec<u64>,
     /// Each slot's generation: how often an archetype in it was reclaimed.
     /// Edges carry the generation of the slot they lead to.
     generations: Vec<u32>,
     /// Archetypes with entities.
     live: usize,
+    pinned_count: usize,
+    dead_count: usize,
+    /// The word the reclaiming sweep goes on from.
+    hand: usize,
     /// The archetypes with entities, ascending, while `listed`.
     list: Vec<u32>,
     listed: bool,
-    /// Archetypes as they became empty (or were created), oldest first, with
-    /// their `Meta::emptied` then. An entry is stale once the archetype got
-    /// entities or emptied again since.
-    queue: VecDeque<(u32, u32)>,
-    /// Empty archetypes that may be reclaimed: not pinned, not dead.
-    empty: usize,
-    /// Dead slots.
+    /// Dead slots free for reuse.
     free: Vec<u32>,
     /// Storage of reclaimed archetypes, by width (component count): at most
     /// as many more than there are dead slots as the world may keep empty
-    /// archetypes. A new archetype takes
-    /// one as wide as it, so the widths kept follow the widths the world
-    /// builds, and a churning world stops allocating once it has built its
-    /// widest mix.
+    /// archetypes. A new archetype takes one as wide as it, so the widths
+    /// kept follow the widths the world builds, and a churning world stops
+    /// allocating once it has built its widest mix.
     shells: Vec<Vec<Shell>>,
     shell_count: usize,
-    /// Column buffers of reclaimed archetypes.
+    /// Column buffers and entity lists of reclaimed archetypes, and the ones
+    /// archetypes outgrew.
     pub(crate) buffers: BufferPool,
 }
 
@@ -125,27 +125,25 @@ impl Slots {
     /// Archetype `a` was just created, empty: in a new slot (the next
     /// index), or in a dead one.
     pub(crate) fn created(&mut self, a: usize) {
-        if a == self.meta.len() {
-            self.meta.push(Meta::default());
+        if a == self.len {
+            self.len += 1;
             self.generations.push(0);
             if a / 64 >= self.occupied.len() {
-                self.occupied.push(0);
+                for bits in [&mut self.occupied, &mut self.recent, &mut self.pinned, &mut self.dead] {
+                    bits.push(0);
+                }
             }
+        } else if take_bit(&mut self.dead, a) {
+            self.dead_count -= 1;
         }
-        let meta = &mut self.meta[a];
-        meta.dead = false;
-        meta.pinned = false;
-        self.queue_empty(a);
+        set_bit(&mut self.recent, a);
     }
 
     /// Archetype `a` is never reclaimed.
     pub(crate) fn pin(&mut self, a: usize) {
-        let meta = &mut self.meta[a];
-        if !meta.pinned {
-            meta.pinned = true;
-            if !is_occupied(&self.occupied, a) {
-                self.empty -= 1;
-            }
+        if !is_set(&self.pinned, a) {
+            set_bit(&mut self.pinned, a);
+            self.pinned_count += 1;
         }
     }
 
@@ -155,9 +153,6 @@ impl Slots {
         self.occupied[a / 64] |= 1 << (a % 64);
         self.live += 1;
         self.listed = false;
-        if !self.meta[a].pinned {
-            self.empty -= 1;
-        }
     }
 
     /// Archetype `a` lost its last entity. The world then reclaims empty
@@ -165,59 +160,50 @@ impl Slots {
     #[inline]
     pub(crate) fn emptied(&mut self, a: usize) {
         self.occupied[a / 64] &= !(1 << (a % 64));
+        self.recent[a / 64] |= 1 << (a % 64);
         self.live -= 1;
         self.listed = false;
-        if !self.meta[a].pinned {
-            self.queue_empty(a);
-        }
-    }
-
-    fn queue_empty(&mut self, a: usize) {
-        let meta = &mut self.meta[a];
-        meta.emptied = meta.emptied.wrapping_add(1);
-        self.empty += 1;
-        if self.queue.capacity() == 0 {
-            // Room for what compaction (below) keeps in a world with up to
-            // `KEEP_EMPTY` empty archetypes, so that one doesn't allocate.
-            self.queue.reserve(4 * KEEP_EMPTY);
-        }
-        self.queue.push_back((a as u32, meta.emptied));
-        if self.queue.len() > 2 * self.empty + KEEP_EMPTY {
-            // Mostly stale entries of archetypes that filled again: drop
-            // them in place, so the queue stays proportional to the empty
-            // archetypes.
-            let (meta, occupied) = (&self.meta, &self.occupied);
-            self.queue.retain(|&(a, stamp)| Self::current(meta, occupied, a, stamp));
-        }
-    }
-
-    fn current(meta: &[Meta], occupied: &[u64], a: u32, stamp: u32) -> bool {
-        let m = meta[a as usize];
-        m.emptied == stamp && !m.pinned && !m.dead && !is_occupied(occupied, a as usize)
     }
 
     /// Whether the world keeps more empty archetypes than the policy allows.
+    /// Pinned archetypes count as if they all had entities, so this is
+    /// `true` only while there are empty archetypes the sweep may reclaim.
     #[inline]
     pub(crate) fn over(&self) -> bool {
-        self.empty > KEEP_EMPTY.max(self.live)
+        let empty = self.len - self.live - self.dead_count;
+        empty.saturating_sub(self.pinned_count) > KEEP_EMPTY.max(self.live)
     }
 
-    /// The archetype that has been empty the longest, taken off the queue,
-    /// if any may be reclaimed.
-    pub(crate) fn oldest_empty(&mut self) -> Option<usize> {
-        while let Some((a, stamp)) = self.queue.pop_front() {
-            if Self::current(&self.meta, &self.occupied, a, stamp) {
-                return Some(a as usize);
+    /// An empty archetype to reclaim: the sweep goes on over the slots,
+    /// taking the first empty, unpinned, live archetype that didn't become
+    /// empty since the sweep last passed it, and clearing that mark on the
+    /// ones it passes. So an archetype is reclaimed the second time the
+    /// sweep finds it empty: roughly, those empty longest go first. Call
+    /// only while [`over`](Self::over).
+    pub(crate) fn next_empty(&mut self) -> Option<usize> {
+        let words = self.occupied.len();
+        // Two rounds clear every mark, so a third finds a candidate if any.
+        for _ in 0..=2 * words {
+            let w = self.hand;
+            let mut candidates = !(self.occupied[w] | self.pinned[w] | self.dead[w]);
+            if w == words - 1 && self.len % 64 != 0 {
+                candidates &= (1 << (self.len % 64)) - 1;
             }
+            let ready = candidates & !self.recent[w];
+            if ready != 0 {
+                return Some(w * 64 + ready.trailing_zeros() as usize);
+            }
+            self.recent[w] &= !candidates;
+            self.hand = (w + 1) % words;
         }
         None
     }
 
     /// Archetype `a` was reclaimed, leaving `shell`.
     pub(crate) fn reclaimed(&mut self, a: usize, shell: Shell) {
-        self.meta[a].dead = true;
+        set_bit(&mut self.dead, a);
+        self.dead_count += 1;
         let width = shell.width();
-        self.empty -= 1;
         // A new generation: edges to the archetype that was here are stale.
         // A slot whose generations ran out stays dead, so that an edge from
         // generations ago can never pass for a current one.
@@ -276,7 +262,7 @@ impl Slots {
     /// [`scan`](Self::scan)'s list instead of every archetype.
     #[inline]
     fn many_empty(&self) -> bool {
-        let empty = self.meta.len() - self.live;
+        let empty = self.len - self.live;
         empty > SCAN_LIST_AFTER && empty * 4 > self.live
     }
 
@@ -317,10 +303,19 @@ impl Slots {
     }
 }
 
-/// Whether bit `a` of `occupied` is set: archetype `a` holds entities.
-#[inline]
-fn is_occupied(occupied: &[u64], a: usize) -> bool {
-    occupied.get(a / 64).is_some_and(|word| word >> (a % 64) & 1 != 0)
+fn is_set(bits: &[u64], a: usize) -> bool {
+    bits[a / 64] >> (a % 64) & 1 != 0
+}
+
+fn set_bit(bits: &mut [u64], a: usize) {
+    bits[a / 64] |= 1 << (a % 64);
+}
+
+/// Clears bit `a`; whether it was set.
+fn take_bit(bits: &mut [u64], a: usize) -> bool {
+    let was = is_set(bits, a);
+    bits[a / 64] &= !(1 << (a % 64));
+    was
 }
 
 #[cfg(test)]

@@ -1145,7 +1145,11 @@ impl World {
             }
             return true;
         }
-        let dst = match self.archetypes[src].add_edges.get(&id).and_then(|&e| self.slots.leads(e)) {
+        let dst = match self.archetypes[src]
+            .add_edges
+            .get(&id)
+            .and_then(|&e| self.slots.leads(e))
+        {
             Some(d) => d,
             None => {
                 let mut ids = std::mem::take(&mut self.scratch_ids);
@@ -1297,7 +1301,7 @@ impl World {
     #[inline(never)]
     fn reclaim_empty(&mut self) {
         while self.slots.over() {
-            let Some(a) = self.slots.oldest_empty() else { break };
+            let Some(a) = self.slots.next_empty() else { break };
             self.reclaim(a);
         }
     }
@@ -1348,7 +1352,11 @@ impl World {
         if self.archetypes[src].tracked() && self.infos[id.index()].tracked {
             self.changes.log_removal(id, e);
         }
-        let dst = match self.archetypes[src].remove_edges.get(&id).and_then(|&e| self.slots.leads(e)) {
+        let dst = match self.archetypes[src]
+            .remove_edges
+            .get(&id)
+            .and_then(|&e| self.slots.leads(e))
+        {
             Some(d) => d,
             None => {
                 let mut ids = std::mem::take(&mut self.scratch_ids);
