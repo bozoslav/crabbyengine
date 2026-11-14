@@ -383,14 +383,26 @@ impl World {
         }
         let a = loc.archetype as usize;
         let moved = unsafe { self.archetypes[a].swap_remove_drop(loc.row as usize) };
-        if let Some(moved) = moved {
-            self.entities.set_row(moved, loc.row as usize);
-        }
-        if self.archetypes[a].is_empty() {
-            self.slots.emptied(a);
-            self.reclaim_if_over();
+        match moved {
+            Some(moved) => self.entities.set_row(moved, loc.row as usize),
+            // The removed row was the last one; row 0 means it was the only
+            // one. Deciding this from what `swap_remove_drop` returned, not
+            // from the archetype's length, keeps the common path free of the
+            // bookkeeping (issue #448).
+            None if loc.row == 0 => self.despawned_last(a),
+            None => {}
         }
         true
+    }
+
+    /// The rare end of [`despawn`](Self::despawn): archetype `a` lost its
+    /// last entity.
+    #[cold]
+    #[inline(never)]
+    fn despawned_last(&mut self, a: usize) {
+        debug_assert!(self.archetypes[a].is_empty());
+        self.slots.emptied(a);
+        self.reclaim_if_over();
     }
 
     /// `true` if `e` hasn't been despawned.
