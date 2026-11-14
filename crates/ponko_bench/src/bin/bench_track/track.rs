@@ -144,7 +144,7 @@ pub fn median(xs: &[f64]) -> f64 {
     if n == 0 {
         return f64::NAN;
     }
-    if n % 2 == 1 {
+    if !n.is_multiple_of(2) {
         v[n / 2]
     } else {
         (v[n / 2 - 1] + v[n / 2]) / 2.0
@@ -397,7 +397,7 @@ fn group_thousands(v: i64) -> String {
     let digits = v.unsigned_abs().to_string();
     let mut out = String::new();
     for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(c);
