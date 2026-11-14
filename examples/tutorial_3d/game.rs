@@ -8,9 +8,13 @@
 //! the lanterns) and [`Hud`] (UI). The tests in `tests/tutorial_3d.rs` walk
 //! the finished game headlessly.
 
+// ANCHOR: use_yard
 use ponko::d3::*;
 use ponko::prelude::*;
+// ANCHOR_END: use_yard
+// ANCHOR: use_hud
 use ponko::ui::{UiEvent, UiLayout};
+// ANCHOR_END: use_hud
 
 // ANCHOR: game
 /// The window title.
@@ -44,10 +48,10 @@ impl Plugin for Yard {
         let look = ctx.gfx.load_mesh(YARD);
         // What you stand on: the same triangles as a collision mesh.
         let shape = ctx.gfx.load_mesh_data(YARD);
-        let triangles: Vec<[u32; 3]> = shape.indices.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect();
+        let (triangles, _) = shape.indices.as_chunks::<3>(); // three corners each
         let solid = ctx
             .physics3d
-            .trimesh(&shape.positions, &triangles)
+            .trimesh(&shape.positions, triangles)
             .expect("the yard has triangles");
         ctx.world.spawn((
             Transform::default(),
@@ -66,7 +70,7 @@ impl Plugin for Yard {
 }
 // ANCHOR_END: yard
 
-// ANCHOR: walker
+// ANCHOR: bindings
 /// Where the walker starts, at its feet.
 pub const START: Vec3 = Vec3::new(0.0, 0.0, 6.0);
 /// Walking speed in m/s.
@@ -146,6 +150,9 @@ pub fn bindings() -> ActionMap {
     map
 }
 
+// ANCHOR_END: bindings
+
+// ANCHOR: walker
 /// Step 2: a walking character, and a camera behind it.
 pub struct Walker;
 

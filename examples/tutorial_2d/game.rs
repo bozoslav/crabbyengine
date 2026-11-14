@@ -7,10 +7,16 @@
 //! score in the player's storage). The tests in `tests/tutorial_2d.rs` play
 //! the finished game headlessly.
 
+// ANCHOR: use_level
 use ponko::d2::*;
 use ponko::prelude::*;
+// ANCHOR_END: use_level
+// ANCHOR: use_menu
 use ponko::ui::{UiEvent, UiLayout};
+// ANCHOR_END: use_menu
+// ANCHOR: use_saves
 use serde::{Deserialize, Serialize};
+// ANCHOR_END: use_saves
 
 // ANCHOR: game
 /// The window title.
@@ -104,7 +110,7 @@ fn follow_crab(ctx: &mut Ctx) {
 }
 // ANCHOR_END: level
 
-// ANCHOR: controls
+// ANCHOR: bindings
 // The game's actions, looked up by name once.
 actions! {
     pub struct Act {
@@ -167,6 +173,9 @@ pub fn bindings() -> ActionMap {
     map
 }
 
+// ANCHOR_END: bindings
+
+// ANCHOR: controls
 /// Step 2: the actions move the crab.
 pub struct Controls;
 

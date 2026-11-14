@@ -7,13 +7,16 @@
 #[path = "../examples/tutorial_2d/game.rs"]
 mod game;
 
-use game::*;
+use game::*; // in your project: `use <your crate>::*;`
+// ANCHOR: uses
 use ponko::actions::InputEvent;
 use ponko::d2::Transform;
 use ponko::prelude::*;
 use ponko::scenario::{InputScenario, ScenarioCheck};
 use std::path::PathBuf;
+// ANCHOR_END: uses
 
+// ANCHOR: play
 /// A storage folder of the test's own, empty.
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("ponko-tutorial-2d-{}-{name}", std::process::id()));
@@ -27,7 +30,6 @@ fn crab(world: &World) -> Vec2 {
     world.get::<Transform>(crab).expect("the crab").position
 }
 
-// ANCHOR: play
 /// Plays `scenario` with frames (so the menu and the controls run), keeping
 /// the saves in `dir`. Tick 1 clicks Play.
 fn play(dir: &PathBuf, scenario: InputScenario) -> World {

@@ -11,6 +11,9 @@ crate; `branding/` does not.
 | `coin_dash/coin.png` | The coin of the `coin_dash` example | Drawn by a script for that example; see `examples/coin_dash/CONTENT-NOTICES.txt` |
 | `levels/beach.json`, `prefabs/*.json` | A scene and prefabs for the scenes chapter | Written for the engine (#50) |
 | `levels/meadow.tmx`, `levels/meadow.tsx`, `levels/meadow.png` | A Tiled map, its tileset and the tileset's image, for the `level` example and the tilemaps chapter | Written for the engine (#381); the image drawn by a script |
+| `tutorial_2d/cove.tmx`, `tutorial_2d/cove.tsx`, `tutorial_2d/tiles.png`, `tutorial_2d/crab.png` | The level, tileset and crab of the 2D tutorial (`tutorial_2d` example) | Made for the engine (#372); the images drawn and the level laid out by a script |
+| `tutorial_2d/coin.wav`, `tutorial_2d/flag.wav` | The 2D tutorial's two sound effects | Made for the engine (#372): square and sine tones synthesized by a script |
+| `tutorial_3d/yard.glb` | The glTF scene of the 3D tutorial (`tutorial_3d` example): ground, walls, a platform with a ramp, stairs and a pillar | Made for the engine (#372): boxes and a wedge written by a script |
 | `shaders/*.wgsl` | Custom material shaders for the 3D examples | Written for the engine (#54) |
 
 Files written for the engine are under the repository's license (MIT or

@@ -13,13 +13,16 @@
 
 mod game;
 
+use game::game; // in your project: `use crab_cove::game;`
+
+// ANCHOR: main
 fn main() {
-    // `HEADLESS=1` runs it without a window, as the `ponko new` template does.
-    let headless = std::env::var("HEADLESS").is_ok_and(|v| v != "0");
-    if headless {
-        let world = game::game().configured().run_headless(600);
-        println!("ran 600 ticks headless: {} entities", world.len());
+    if std::env::var("HEADLESS").is_ok_and(|v| v != "0") {
+        let ticks = std::env::var("TICKS").ok().and_then(|t| t.parse().ok()).unwrap_or(600);
+        let world = game().configured().run_headless(ticks);
+        println!("ran {ticks} ticks headless: {} entities", world.len());
     } else {
-        game::game().configured().run();
+        game().configured().run();
     }
 }
+// ANCHOR_END: main

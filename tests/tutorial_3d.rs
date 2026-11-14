@@ -8,12 +8,15 @@
 #[path = "../examples/tutorial_3d/game.rs"]
 mod game;
 
-use game::*;
+use game::*; // in your project: `use <your crate>::*;`
+// ANCHOR: uses
 use ponko::actions::InputEvent;
 use ponko::d3::{Character, Transform};
 use ponko::prelude::*;
 use ponko::scenario::{InputScenario, ScenarioCheck};
+// ANCHOR_END: uses
 
+// ANCHOR: walk
 /// The walker's feet, and whether it stands on something.
 fn walker(world: &World) -> (Vec3, bool) {
     let e = world.resource::<Player>().entity;
@@ -21,7 +24,6 @@ fn walker(world: &World) -> (Vec3, bool) {
     (at, world.get::<Character>(e).expect("a character").grounded)
 }
 
-// ANCHOR: walk
 /// Plays `scenario` with frames, so the controls and the HUD run. `start`
 /// moves the walker before the first tick.
 fn play(scenario: InputScenario, start: Vec3) -> World {
