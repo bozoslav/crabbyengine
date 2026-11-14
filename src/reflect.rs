@@ -19,9 +19,9 @@ mod builtin_schemas;
 mod migrate;
 mod particles;
 pub(crate) use animation::reflect_animation;
-pub(crate) use particles::reflect_particle_emitter2d;
-pub use migrate::{Migration, SaveMigrations};
 pub(crate) use migrate::migrate as migrate_save;
+pub use migrate::{Migration, SaveMigrations};
+pub(crate) use particles::reflect_particle_emitter2d;
 
 use crate::schema::{SchemaSource, schema_json};
 

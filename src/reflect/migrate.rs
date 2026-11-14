@@ -31,19 +31,52 @@ type SaveFn = Arc<dyn Fn(&mut Value) -> Result<(), String> + Send + Sync>;
 /// One change of a [`Migration`].
 #[derive(Clone)]
 enum Op {
-    RenameComponent { from: String, to: String },
+    RenameComponent {
+        from: String,
+        to: String,
+    },
     RemoveComponent(String),
-    ConvertComponent { component: String, convert: ValueFn },
-    RenameField { component: String, from: String, to: String },
-    AddField { component: String, field: String, value: Value },
-    RemoveField { component: String, field: String },
-    ConvertField { component: String, field: String, convert: ValueFn },
-    SplitComponent { from: String, parts: Vec<(String, Vec<String>)> },
-    MergeComponents { from: Vec<String>, into: String },
+    ConvertComponent {
+        component: String,
+        convert: ValueFn,
+    },
+    RenameField {
+        component: String,
+        from: String,
+        to: String,
+    },
+    AddField {
+        component: String,
+        field: String,
+        value: Value,
+    },
+    RemoveField {
+        component: String,
+        field: String,
+    },
+    ConvertField {
+        component: String,
+        field: String,
+        convert: ValueFn,
+    },
+    SplitComponent {
+        from: String,
+        parts: Vec<(String, Vec<String>)>,
+    },
+    MergeComponents {
+        from: Vec<String>,
+        into: String,
+    },
     Entities(EntityFn),
-    RenameResource { from: String, to: String },
+    RenameResource {
+        from: String,
+        to: String,
+    },
     RemoveResource(String),
-    ConvertResource { resource: String, convert: ValueFn },
+    ConvertResource {
+        resource: String,
+        convert: ValueFn,
+    },
     Save(SaveFn),
 }
 
@@ -56,7 +89,11 @@ impl fmt::Debug for Op {
             Self::RenameField { component, from, to } => {
                 write!(f, "rename_field({component:?}, {from:?}, {to:?})")
             }
-            Self::AddField { component, field, value } => {
+            Self::AddField {
+                component,
+                field,
+                value,
+            } => {
                 write!(f, "add_field({component:?}, {field:?}, {value})")
             }
             Self::RemoveField { component, field } => write!(f, "remove_field({component:?}, {field:?})"),
@@ -208,7 +245,10 @@ impl Migration {
             .iter()
             .map(|(name, fields)| (name.to_string(), fields.iter().map(|f| f.to_string()).collect()))
             .collect();
-        self.with(Op::SplitComponent { from: from.into(), parts })
+        self.with(Op::SplitComponent {
+            from: from.into(),
+            parts,
+        })
     }
 
     /// Components `from` became one, `into`, with the fields of all of
@@ -276,7 +316,11 @@ impl Migration {
             apply(op, save)?;
         }
         if let Some(Value::Array(entities)) = save.get_mut("entities") {
-            entities.retain(|e| e.get("components").and_then(Value::as_object).is_none_or(|c| !c.is_empty()));
+            entities.retain(|e| {
+                e.get("components")
+                    .and_then(Value::as_object)
+                    .is_none_or(|c| !c.is_empty())
+            });
         }
         Ok(())
     }
@@ -349,6 +393,12 @@ impl SaveMigrations {
         self.version
     }
 
+    /// The version the newest registered step migrates from, if any: the
+    /// game's version can't go down to it or below.
+    pub fn newest_step(&self) -> Option<u32> {
+        self.steps.keys().next_back().copied()
+    }
+
     /// Sets the game's save version (for code that registers steps one at
     /// a time, as the C API does).
     ///
@@ -357,7 +407,9 @@ impl SaveMigrations {
     #[track_caller]
     pub fn set_version(&mut self, version: u32) {
         if let Some((&from, _)) = self.steps.range(version..).next() {
-            panic!("SaveMigrations::set_version: a step from version {from} is registered, so the version must be above {from}");
+            panic!(
+                "SaveMigrations::set_version: a step from version {from} is registered, so the version must be above {from}"
+            );
         }
         self.version = version;
     }
@@ -503,7 +555,10 @@ fn resources(save: &mut Value) -> Result<Option<&mut Map<String, Value>>, String
 }
 
 /// The object of component `name`, if the entity has it.
-fn fields<'a>(components: &'a mut Map<String, Value>, name: &str) -> Result<Option<&'a mut Map<String, Value>>, String> {
+fn fields<'a>(
+    components: &'a mut Map<String, Value>,
+    name: &str,
+) -> Result<Option<&'a mut Map<String, Value>>, String> {
     match components.get_mut(name) {
         None => Ok(None),
         Some(Value::Object(map)) => Ok(Some(map)),
@@ -541,7 +596,11 @@ fn entity_op(op: &Op, c: &mut Map<String, Value>) -> Result<(), String> {
                 f.insert(to.clone(), value);
             }
         }
-        Op::AddField { component, field, value } => {
+        Op::AddField {
+            component,
+            field,
+            value,
+        } => {
             if let Some(f) = fields(c, component)? {
                 f.entry(field.clone()).or_insert_with(|| value.clone());
             }
@@ -590,7 +649,9 @@ fn entity_op(op: &Op, c: &mut Map<String, Value>) -> Result<(), String> {
                 c.remove(name);
                 for (field, value) in source {
                     if merged.contains_key(&field) {
-                        return Err(format!("merging into `{into}`: field `{field}` is in more than one component"));
+                        return Err(format!(
+                            "merging into `{into}`: field `{field}` is in more than one component"
+                        ));
                     }
                     merged.insert(field, value);
                 }
@@ -654,7 +715,9 @@ impl crate::ctx::Ctx {
         let mut failures = Vec::new();
         let mut first_kind = None;
         for path in &files {
-            let name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            let name = path
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
             let checked = std::fs::read(path)
                 .map_err(|e| Error::new(ErrorKind::Io, e.to_string()))
                 .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).map_err(Error::from))
