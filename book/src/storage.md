@@ -100,6 +100,11 @@ its table of what a load replaces and keeps applies. `world_slots()` lists the
 slots, `delete_world(slot)` removes one. C and C++: `ponko_ctx_save_world`,
 `ponko_ctx_load_world` and `ctx.save_world`, `ctx.load_world`.
 
+A save holds what the game can't rebuild: entities with `NotSaved` are left
+out. A [level spawned from Tiled or LDtk](tiles.md#levels-and-saves) is, all
+but its prefab objects; after `load_world`, spawn it again with
+`LevelOptions::without_saved_objects`.
+
 A save slot is one player's file, so `load_world` is refused while a
 [lockstep session](networking.md) is connecting or running: the other peers
 don't have it.

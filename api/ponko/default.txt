@@ -839,6 +839,7 @@ impl ponko_ecs::bundle::Component for ponko::d2::LevelObject
 #[non_exhaustive] pub struct ponko::d2::LevelOptions
 pub ponko::d2::LevelOptions::level: core::option::Option<alloc::string::String>
 pub ponko::d2::LevelOptions::no_colliders: bool
+pub ponko::d2::LevelOptions::no_saved_objects: bool
 pub ponko::d2::LevelOptions::prefabs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
 pub ponko::d2::LevelOptions::solid: alloc::vec::Vec<alloc::string::String>
 pub ponko::d2::LevelOptions::z: f32
@@ -848,6 +849,7 @@ pub fn ponko::d2::LevelOptions::level(self, impl core::convert::Into<alloc::stri
 pub fn ponko::d2::LevelOptions::prefab(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn ponko::d2::LevelOptions::solid(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn ponko::d2::LevelOptions::without_colliders(self) -> Self
+pub fn ponko::d2::LevelOptions::without_saved_objects(self) -> Self
 impl core::clone::Clone for ponko::d2::LevelOptions
 pub fn ponko::d2::LevelOptions::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::d2::LevelOptions
@@ -3761,6 +3763,7 @@ impl ponko_ecs::bundle::Component for ponko::d2::LevelObject
 #[non_exhaustive] pub struct ponko::prelude::d2::LevelOptions
 pub ponko::prelude::d2::LevelOptions::level: core::option::Option<alloc::string::String>
 pub ponko::prelude::d2::LevelOptions::no_colliders: bool
+pub ponko::prelude::d2::LevelOptions::no_saved_objects: bool
 pub ponko::prelude::d2::LevelOptions::prefabs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
 pub ponko::prelude::d2::LevelOptions::solid: alloc::vec::Vec<alloc::string::String>
 pub ponko::prelude::d2::LevelOptions::z: f32
@@ -3770,6 +3773,7 @@ pub fn ponko::d2::LevelOptions::level(self, impl core::convert::Into<alloc::stri
 pub fn ponko::d2::LevelOptions::prefab(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn ponko::d2::LevelOptions::solid(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn ponko::d2::LevelOptions::without_colliders(self) -> Self
+pub fn ponko::d2::LevelOptions::without_saved_objects(self) -> Self
 impl core::clone::Clone for ponko::d2::LevelOptions
 pub fn ponko::d2::LevelOptions::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::d2::LevelOptions
@@ -5374,6 +5378,19 @@ pub fn ponko::reflect::Field::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::reflect::Field
 pub fn ponko::reflect::Field::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::reflect::Field
+pub struct ponko::reflect::NotSaved
+impl core::clone::Clone for ponko::reflect::NotSaved
+pub fn ponko::reflect::NotSaved::clone(&self) -> Self
+impl core::cmp::Eq for ponko::reflect::NotSaved
+impl core::cmp::PartialEq for ponko::reflect::NotSaved
+pub fn ponko::reflect::NotSaved::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::reflect::NotSaved
+pub fn ponko::reflect::NotSaved::default() -> Self
+impl core::fmt::Debug for ponko::reflect::NotSaved
+pub fn ponko::reflect::NotSaved::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::reflect::NotSaved
+impl core::marker::StructuralPartialEq for ponko::reflect::NotSaved
+impl ponko_ecs::bundle::Component for ponko::reflect::NotSaved
 pub trait ponko::reflect::WorldReflect
 pub fn ponko::reflect::WorldReflect::describe_component(&mut self, &str, ponko::reflect::ValueSchema) -> core::result::Result<(), ponko::reflect::ReflectError>
 pub fn ponko::reflect::WorldReflect::describe_resource(&mut self, &str, ponko::reflect::ValueSchema) -> core::result::Result<(), ponko::reflect::ReflectError>
@@ -6598,6 +6615,7 @@ impl ponko_ecs::bundle::Component for ponko::d2::LevelObject
 #[non_exhaustive] pub struct ponko::tilemap::LevelOptions
 pub ponko::tilemap::LevelOptions::level: core::option::Option<alloc::string::String>
 pub ponko::tilemap::LevelOptions::no_colliders: bool
+pub ponko::tilemap::LevelOptions::no_saved_objects: bool
 pub ponko::tilemap::LevelOptions::prefabs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
 pub ponko::tilemap::LevelOptions::solid: alloc::vec::Vec<alloc::string::String>
 pub ponko::tilemap::LevelOptions::z: f32
@@ -6607,6 +6625,7 @@ pub fn ponko::d2::LevelOptions::level(self, impl core::convert::Into<alloc::stri
 pub fn ponko::d2::LevelOptions::prefab(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn ponko::d2::LevelOptions::solid(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn ponko::d2::LevelOptions::without_colliders(self) -> Self
+pub fn ponko::d2::LevelOptions::without_saved_objects(self) -> Self
 impl core::clone::Clone for ponko::d2::LevelOptions
 pub fn ponko::d2::LevelOptions::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::d2::LevelOptions

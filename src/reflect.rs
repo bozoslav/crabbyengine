@@ -14,8 +14,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+mod animation;
 mod builtin_schemas;
 mod particles;
+pub(crate) use animation::reflect_animation;
 pub(crate) use particles::reflect_particle_emitter2d;
 
 use crate::schema::{SchemaSource, schema_json};
@@ -107,6 +109,32 @@ pub(crate) struct WorldLoads(pub(crate) u64);
 pub(crate) fn world_loads(world: &World) -> u64 {
     world.get_resource::<WorldLoads>().map_or(0, |l| l.0)
 }
+
+/// Leaves its entity out of world saves: [`WorldReflect::save`] skips
+/// every entity that has it, and so do the saves built on it
+/// ([`Storage::save_world`](crate::storage::Storage::save_world),
+/// [`save_scene`](crate::assets::Assets::save_scene), the editor and the
+/// control endpoint's `world.save`). Loading a save replaces every entity,
+/// these too, so the game spawns them again after a load.
+///
+/// For what the game rebuilds from its own files rather than from a save:
+/// [`Ctx::spawn_level`](crate::ctx::Ctx::spawn_level) puts it on everything
+/// it spawns except the objects spawned as prefabs (see
+/// [`LevelOptions::without_saved_objects`](crate::d2::LevelOptions::without_saved_objects)).
+/// It isn't reflected itself, so it is never in a save, scene or prefab.
+///
+/// ```
+/// use ponko::prelude::*;
+/// use ponko::reflect::NotSaved;
+///
+/// let mut world = World::new();
+/// world.reflect::<ponko::d2::Transform>();
+/// world.spawn((ponko::d2::Transform::at(vec2(1.0, 2.0)),)); // the player
+/// world.spawn((ponko::d2::Transform::default(), NotSaved)); // scenery from a file
+/// assert_eq!(world.save()["entities"].as_array().unwrap().len(), 1);
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Component)]
+pub struct NotSaved;
 
 /// What reflection knows about one component type.
 #[derive(Clone)]
@@ -484,8 +512,9 @@ pub trait WorldReflect {
     /// the module path (`my_game::Health` becomes `"Health"`).
     /// Registering the same type again does nothing.
     ///
-    /// `Transform2D`, `Sprite` and `Attached` are reflected in every game by
-    /// default (a sprite with its texture's file name), and with 3D on,
+    /// `Transform2D`, `Sprite`, `Animation` and `Attached` are reflected in
+    /// every game by default (a sprite or a sprite-sheet animation with its
+    /// texture's file name), and with 3D on,
     /// `Transform3D` and `Model` too (a model with its mesh's file name).
     ///
     /// ```
@@ -646,7 +675,7 @@ pub trait WorldReflect {
     /// The whole world as JSON: every entity that has reflected components,
     /// with its id, sorted by id. Components that aren't reflected are not
     /// saved; `"not_saved"` counts them by name, so nothing goes missing
-    /// silently. Reflected resources ([`reflect_resource`](Self::reflect_resource))
+    /// silently. Entities with [`NotSaved`] are left out (and not counted). Reflected resources ([`reflect_resource`](Self::reflect_resource))
     /// are saved under `"resources"`; others are not.
     ///
     /// ```
@@ -1188,7 +1217,13 @@ impl WorldReflect for World {
         let reflected = self.reflected_components();
         let mut entities = Vec::new();
         let mut not_saved: std::collections::BTreeMap<String, usize> = Default::default();
-        for a in self.raw_ref().archetypes().iter().filter(|a| !a.is_empty()) {
+        let left_out = self.component_id::<NotSaved>();
+        for a in self
+            .raw_ref()
+            .archetypes()
+            .iter()
+            .filter(|a| !a.is_empty() && left_out.is_none_or(|id| !a.component_ids().contains(&id)))
+        {
             for &id in a.component_ids() {
                 // Rust components are reflected under their short name, C ones
                 // under the name they were registered with ("game::Health").
