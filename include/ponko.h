@@ -2106,8 +2106,6 @@ typedef struct PonkoTargetEffect {
   struct PonkoMaterial material;
 } PonkoTargetEffect;
 
-typedef uint32_t (*PonkoSceneAssetFn)(struct PonkoCtx *ctx, const char *name, void *user);
-
 typedef struct PonkoSprite {
   struct PonkoTexture texture;
   struct PonkoColor color;
@@ -5309,12 +5307,6 @@ enum PonkoStatus ponko_ctx_set_action(struct PonkoCtx *ctx,
                                       const struct PonkoActionBinding *bindings,
                                       size_t count);
 
-enum PonkoStatus ponko_game_add_builtin(struct PonkoGame *game,
-                                        uint32_t phase_raw,
-                                        uint32_t system_id);
-
-enum PonkoStatus ponko_builtin_access(uint32_t system_id, struct PonkoAccess **out_access);
-
 enum PonkoStatus ponko_ctx_play_sound_at_keyed(struct PonkoCtx *ctx,
                                                struct PonkoSound sound,
                                                struct PonkoVec3 position,
@@ -5331,6 +5323,12 @@ enum PonkoStatus ponko_ctx_set_audio_source3d_keyed(struct PonkoCtx *ctx,
                                                     size_t count);
 
 enum PonkoStatus ponko_ctx_audio_unlocked(struct PonkoCtx *ctx, bool *out_unlocked);
+
+enum PonkoStatus ponko_game_add_builtin(struct PonkoGame *game,
+                                        uint32_t phase_raw,
+                                        uint32_t system_id);
+
+enum PonkoStatus ponko_builtin_access(uint32_t system_id, struct PonkoAccess **out_access);
 
 enum PonkoStatus ponko_ctx_ecs_diagnostics(struct PonkoCtx *ctx,
                                            char *buffer,
@@ -5394,12 +5392,6 @@ enum PonkoStatus ponko_ctx_ui_immediate_border_width(struct PonkoCtx *ctx, float
 enum PonkoStatus ponko_ctx_set_ui_immediate_border_width(struct PonkoCtx *ctx, float width);
 
 enum PonkoStatus ponko_ctx_ui_immediate_scale(struct PonkoCtx *ctx, float *out_scale);
-
-enum PonkoStatus ponko_ctx_scene_asset_field(struct PonkoCtx *ctx,
-                                             const char *component,
-                                             const char *field,
-                                             PonkoSceneAssetFn load,
-                                             void *user);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -169,3 +169,42 @@ pub unsafe extern "C" fn ponko_ctx_audio_unlocked(ctx: *mut PonkoCtx, out_unlock
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_unlocked, c.audio.unlocked())) })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(list: &[(f32, f32)]) -> Vec<PonkoAudioKey> {
+        list.iter()
+            .map(|&(distance, gain)| PonkoAudioKey { distance, gain })
+            .collect()
+    }
+
+    #[test]
+    fn keyed_curves_carry_the_keys_and_equal_curves_share_one_copy() {
+        let given = keys(&[(0.0, 1.0), (0.5, 0.3), (1.0, 0.0)]);
+        // SAFETY: a live vector of `len` keys.
+        let (a, b) = unsafe {
+            (
+                keyed(given.as_ptr(), 3).ok().unwrap(),
+                keyed(given.clone().as_ptr(), 3).ok().unwrap(),
+            )
+        };
+        let (AudioRolloff::Keyed(a), AudioRolloff::Keyed(b)) = (a, b) else {
+            panic!("not keyed");
+        };
+        assert_eq!(a, [(0.0, 1.0), (0.5, 0.3), (1.0, 0.0)]);
+        assert!(std::ptr::eq(a, b), "the same keys again reuse the kept copy");
+        let other = keys(&[(0.0, 1.0), (1.0, 0.5)]);
+        // SAFETY: as above.
+        let AudioRolloff::Keyed(c) = (unsafe { keyed(other.as_ptr(), 2).ok().unwrap() }) else {
+            panic!("not keyed");
+        };
+        assert!(!std::ptr::eq(a, c));
+        // SAFETY: null with no keys.
+        assert!(matches!(
+            unsafe { keyed(std::ptr::null(), 0) },
+            Ok(AudioRolloff::Keyed([]))
+        ));
+    }
+}

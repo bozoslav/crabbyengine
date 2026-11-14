@@ -671,29 +671,8 @@ impl crate::assets::Assets {
         load: impl Fn(&mut Ctx, &str) -> Result<(), crate::error::Error> + 'static,
     ) {
         let component = crate::reflect::short_name(std::any::type_name::<T>());
-        self.scene_asset_field_named(&component, field, load);
-    }
-
-    /// [`scene_asset_field`](Self::scene_asset_field) for the component
-    /// saved under `component` in scene files: for components registered
-    /// by name rather than by Rust type, such as those of C and C++ games.
-    /// A Rust type is saved under its type name without the path
-    /// (`ShopItem`).
-    ///
-    /// ```
-    /// # use ponko::prelude::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     ctx.assets.scene_asset_field_named("ShopItem", "icon", |ctx, name| ctx.gfx.try_load_texture(name).map(|_| ()));
-    /// });
-    /// ```
-    pub fn scene_asset_field_named(
-        &mut self,
-        component: &str,
-        field: &str,
-        load: impl Fn(&mut Ctx, &str) -> Result<(), crate::error::Error> + 'static,
-    ) {
         let entry = SceneAssetField {
-            component: component.to_string(),
+            component,
             field: field.to_string(),
             load: std::rc::Rc::new(load),
         };
