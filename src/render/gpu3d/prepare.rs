@@ -579,6 +579,9 @@ impl Renderer3D {
                 Some((&m.buffers.as_ref()?.0, m.skin.as_ref()?))
             },
             |k| drawn[k],
+            // Poses that moved are posed as they were too, for the motion
+            // pass (only when it draws something: not on a reset frame).
+            self.screen.velocity_on && !frame.motion.runs.is_empty(),
         );
         self.lists.skin_drawn = drawn;
         self.order_runs();

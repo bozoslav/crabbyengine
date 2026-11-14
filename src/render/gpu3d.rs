@@ -1852,3 +1852,6 @@ mod post_links_render_test;
 #[cfg(test)]
 #[path = "shader_reload_render_test.rs"]
 mod shader_reload_render_test;
+#[cfg(test)]
+#[path = "skin_motion_render_test.rs"]
+mod skin_motion_render_test;

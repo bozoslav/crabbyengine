@@ -331,10 +331,12 @@ fn transparent_color(in: VertexOut, front: bool) -> vec4<f32> {
 // Models that moved since last frame are drawn again, over the depth the
 // opaque pass left, to say where each pixel was: the same vertices through
 // last frame's model matrix (the `vertex` function still sees this frame's
-// time, so animation inside it is not part of the motion). A buffer-driven
-// mesh (see `Vertex.instance_index`) gets the entity's rigid motion: both
-// matrices see the same buffer element, so what the buffer does per element
-// is not part of the motion either.
+// time, so animation inside it is not part of the motion). A skinned or
+// morphing model whose pose changed brings its last pose's positions in
+// `previous_position`; every other mesh brings its own positions again.
+// A buffer-driven mesh (see `Vertex.instance_index`) gets the entity's
+// rigid motion: both matrices see the same buffer element, so what the
+// buffer does per element is not part of the motion either.
 struct VelocityIn {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
@@ -351,6 +353,7 @@ struct VelocityIn {
     @location(11) p1: vec4<f32>,
     @location(12) p2: vec4<f32>,
     @location(13) p3: vec4<f32>,
+    @location(14) previous_position: vec3<f32>,
 };
 
 struct VelocityOut {
@@ -380,6 +383,7 @@ fn vs_velocity(in: VelocityIn) -> VelocityOut {
     b.m1 = in.p1;
     b.m2 = in.p2;
     b.m3 = in.p3;
+    b.position = in.previous_position;
     let now = world_vertex(a);
     let before = world_vertex(b);
     var out: VelocityOut;
