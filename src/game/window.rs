@@ -229,6 +229,9 @@ where
             self.ctx.input.cursor_lock_changed = false;
             apply_cursor_lock(window, self.ctx.input.cursor_locked());
         }
+        if let Some(window) = &self.window {
+            self.ctx.input.apply_ime(window);
+        }
 
         // With vsync, presenting blocks until the display is ready, which
         // paces the loop. So we can ask for the next frame right away.
@@ -465,6 +468,8 @@ where
                 && key.physical_key == PhysicalKey::Code(crate::inspector::TOGGLE_CODE)
             {
                 inspector.open = !inspector.open;
+                // Its text fields may have changed the window's IME.
+                self.ctx.input.reapply_ime();
                 window.request_redraw();
                 return;
             }
@@ -511,7 +516,7 @@ where
             // The system lets go of the cursor while the window is away.
             WindowEvent::Focused(true) if self.ctx.input.cursor_locked() => apply_cursor_lock(&window, true),
 
-            WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ctx.input.add_text(&text),
+            WindowEvent::Ime(ime) => self.ctx.input.feed_ime(crate::input::ImeEvent::from_winit(ime)),
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state == ElementState::Pressed
                     && let Some(text) = &event.text

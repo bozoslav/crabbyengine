@@ -24,6 +24,9 @@ use glam::Vec2;
 #[cfg(feature = "window")]
 use winit::keyboard::KeyCode;
 
+mod ime;
+pub use ime::ImeEvent;
+
 macro_rules! define_keys {
     ($($(#[$meta:meta])* $name:ident => $code:ident),* $(,)?) => {
         /// A keyboard key, identified by its **physical position** on a US layout.
@@ -407,6 +410,8 @@ pub struct Input {
     pub(crate) cursor_lock_changed: bool,
     /// Running input scenario and whether tools may start one.
     pub(crate) scenarios: crate::scenario::Scenarios,
+    /// IME composition and the requests for the window system.
+    pub(crate) ime: ime::ImeState,
 }
 
 impl Input {
@@ -425,6 +430,7 @@ impl Input {
             cursor_locked: false,
             cursor_lock_changed: false,
             scenarios: Default::default(),
+            ime: Default::default(),
         }
     }
 
@@ -449,8 +455,9 @@ impl Input {
     }
 
     /// Committed Unicode typed this frame, also readable when UI has focus.
-    /// Cleared with other input after frame systems. Does not include IME
-    /// composition/preedit. Physical keys remain separate.
+    /// Cleared with other input after frame systems. Text committed from an
+    /// IME composition arrives here too; the composition before that is
+    /// [`preedit`](Self::preedit). Physical keys remain separate.
     /// ```
     /// use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
@@ -526,6 +533,7 @@ impl Input {
             pad.end_frame();
         }
         self.typed_text.clear();
+        self.ime.end_frame();
         self.mouse_wheel = Vec2::ZERO;
         self.mouse_motion = Vec2::ZERO;
         self.mouse_pos_at_frame_start = self.mouse_pos;
