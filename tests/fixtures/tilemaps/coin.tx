@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<template>
+ <tileset firstgid="1" source="ground.tsx"/>
+ <object name="Coin" type="Coin" gid="5" width="16" height="16">
+  <properties>
+   <property name="value" type="int" value="5"/>
+   <property name="sound" value="coin.wav"/>
+  </properties>
+ </object>
+</template>

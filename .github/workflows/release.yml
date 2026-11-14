@@ -1,24 +1,51 @@
 name: Release
 
-# First fold the changelog fragments in (python3 scripts/changelog.py) and
-# name the version in CHANGELOG.md, through a PR. Then push a tag like
-# v0.1.0 (on a commit of main whose CI passed):
-#   - checks the tag, the crate versions and the CHANGELOG section (which
-#     must fit in a GitHub release body) before anything is built;
+# First fold the changelog fragments in (python3 scripts/changelog.py
+# --version X.Y.Z, which also writes the migration chapter of a minor release)
+# and name the version in CHANGELOG.md, through a PR, and merge it. Then push
+# a tag on the merge commit: v0.2.0 on main or on release-0.2, v0.1.1 on
+# release-0.1 (the patch branch of 0.1; main may already hold breaking
+# changes), or a release candidate, v0.2.0-rc.1 (a candidate may keep its
+# notes under [Unreleased]). The workflow:
+#   - verifies, before anything is built: the tag, the crate versions and the
+#     CHANGELOG section (which must fit in a GitHub release body) and, for a
+#     release with breaking changes, its migration chapter; and that the CI
+#     run of the tagged commit on main (or release-X.Y) succeeded, through
+#     the Actions API with GITHUB_TOKEN (a run still going is named as such:
+#     re-run the job once it finished);
 #   - packages every crate (`cargo publish --workspace --dry-run`), so a
 #     crate that can't be published stops the release before it exists;
-#   - builds the C library on each OS and attaches it, with the headers,
-#     the licenses and the third-party notices of every library linked into
-#     it, to a GitHub release whose notes are that version's CHANGELOG section;
-#   - publishes the crates to crates.io if the CARGO_REGISTRY_TOKEN secret
-#     is set (`gh secret set CARGO_REGISTRY_TOKEN`); otherwise that job says
-#     so and does nothing, and can be re-run once the secret exists.
+#   - builds the C library on each OS;
+#   - waits for a maintainer to approve the `release` environment (repository
+#     settings, Environments: required reviewers). That is the only manual
+#     step after the tag. Only the `publish` job uses the environment, so one
+#     approval covers the GitHub release and crates.io, and nothing is
+#     published without it;
+#   - `publish` attaches the C library, with the headers, the licenses and
+#     the third-party notices of every library linked into it, to a GitHub
+#     release whose notes are that version's CHANGELOG section (a candidate's
+#     release is marked pre-release), and publishes the crates to crates.io
+#     with Trusted Publishing: GitHub OIDC (`id-token: write`) and
+#     rust-lang/crates-io-auth-action trade the job's identity for a
+#     crates.io token that expires after 30 minutes, so no registry token is
+#     stored anywhere. Each crate must list this repository, this workflow
+#     file and the `release` environment as a trusted publisher (crates.io,
+#     the crate's Settings, Trusted Publishing; CONTRIBUTING.md "Releasing"
+#     has the checklist); until then the job stops with a message saying so,
+#     before it creates anything, and can be re-run once it is set up. A
+#     candidate's crates are at X.Y.Z-rc.N, which crates.io and Cargo treat as
+#     a pre-release: `cargo add ponko` and `ponko = "0.2"` never select them;
+#   - redeploys the website and guide (`website`), if the
+#     PONKO_WEBSITE_DEPLOY_HOOK secret exists.
+# Triggers: only a tag push. Never pull_request_target or workflow_run: they
+# run with secrets and write access on input an outsider can influence.
 on:
   push:
     tags: ["v*"]
 
+# Read-only unless a job says otherwise.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -79,54 +106,112 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo publish --workspace --dry-run
 
-  github-release:
-    name: GitHub release
+  # The only job that needs approval (the `release` environment: required
+  # reviewers, set up in the repository's settings) and the only one that can
+  # publish: it has the write permission and the OIDC token, nothing else has.
+  # One job, so one approval covers both the GitHub release and crates.io,
+  # and a re-run after a failure (crates.io not set up, a crate refused)
+  # carries on: the release is created only if it does not exist yet.
+  publish:
+    name: Publish (release environment)
     needs: [c-library, publish-check]
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # crates.io Trusted Publishing (OIDC)
     steps:
       - uses: actions/checkout@v7
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
       - name: Notes from CHANGELOG.md
         run: python3 scripts/release-check.py notes "$GITHUB_REF_NAME" notes.md
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "Ponko ${GITHUB_REF_NAME#v}" --notes-file notes.md
+      # Pinned to a commit (v1.0.6): the action's `v1` is a branch, and this
+      # job can publish. It hands over a token that lasts 30 minutes and
+      # revokes it when the job ends. If the exchange fails, nothing has been
+      # created yet; the next step says why and stops.
+      - name: Get a crates.io token (Trusted Publishing)
+        id: auth
+        continue-on-error: true
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9
+      - name: Trusted Publishing is not set up
+        if: steps.auth.outcome == 'failure'
+        run: |
+          echo "::error title=crates.io Trusted Publishing is not set up::crates.io refused this workflow's identity, so nothing was released. A maintainer adds ${GITHUB_REPOSITORY} with the workflow file release.yml and the environment release as a trusted publisher of every crate (crates.io, the crate's Settings, Trusted Publishing); the steps are in CONTRIBUTING.md, \"Releasing\". Then re-run this job."
+          exit 1
+      # release-check.py lets only vX.Y.Z and vX.Y.Z-rc.N through, so a
+      # suffix means a release candidate. GitHub picks the "latest" release by
+      # date and version itself: a 0.1.x patch release made after 0.2.0 does
+      # not take the badge from it, and a pre-release never has it.
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-
-  crates-io:
-    name: Publish to crates.io
-    needs: github-release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install ALSA and udev headers (audio, gamepads)
-        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - name: cargo publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
-            echo "::warning::No CARGO_REGISTRY_TOKEN secret: skipped. Set it and re-run this job."
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "The release $GITHUB_REF_NAME exists already (a re-run): keeping it."
             exit 0
           fi
-          cargo publish --workspace
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Ponko ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md "${flags[@]}"
+      - name: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          if ! cargo publish --workspace; then
+            echo "::error title=cargo publish failed::If crates.io says a crate is not allowed to publish with this token, add Trusted Publishing for that crate (CONTRIBUTING.md, \"Releasing\"; a crate that never was on crates.io needs its first version published by a maintainer with an API token). Then re-run this job."
+            exit 1
+          fi
+
+  # Redeploys ponko.dev, which builds the guide from the engine's main (its own
+  # repository, DEPLOYMENT.md there). Needs the PONKO_WEBSITE_DEPLOY_HOOK
+  # secret: the URL of a Cloudflare Pages deploy hook for the website's main
+  # branch. The only secret the release uses besides the built-in token, and a
+  # deploy hook is not a registry token. Without it this job says so and
+  # succeeds: the website's next deployment picks the guide up.
+  website:
+    name: Redeploy the website
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Trigger the deploy hook
+        env:
+          DEPLOY_HOOK: ${{ secrets.PONKO_WEBSITE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "::warning::No PONKO_WEBSITE_DEPLOY_HOOK secret: the website was not redeployed. Retry the deploy in Cloudflare Pages, or add the secret (CONTRIBUTING.md, \"Releasing\") and re-run this job."
+            exit 0
+          fi
+          curl --fail --silent --show-error --request POST "$DEPLOY_HOOK"
+          echo "Redeploy of the website requested."
 
   # Every release job depends on this one (c-library and publish-check, then
-  # github-release and crates-io through them): nothing is built, released or
+  # publish and website through them): nothing is built, released or
   # published unless the tag, the crates' versions and the CHANGELOG section
-  # agree, the section fits in a GitHub release body (125,000 characters), and
-  # the tagged commit was merged to main (scripts/release-check.py).
+  # agree, the section fits in a GitHub release body (125,000 characters),
+  # the tagged commit was merged to main or to the release-X.Y branch of the
+  # tag's minor (scripts/release-check.py check), and CI succeeded on it
+  # there (release-check.py ci).
   verify:
     name: Check the tag
     if: github.ref_type == 'tag' && !endsWith(github.ref_name, '-desktop-dry-run')
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read # the CI runs of the tagged commit
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # the check looks for the tag's commit on main
-      - run: python3 scripts/release-check.py check "$GITHUB_REF_NAME" --on-main
+          fetch-depth: 0 # the check looks for the tag's commit on main or release-X.Y
+      - run: python3 scripts/release-check.py check "$GITHUB_REF_NAME" --on-branch
+      - name: CI succeeded on the tagged commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/release-check.py ci "$GITHUB_REF_NAME"

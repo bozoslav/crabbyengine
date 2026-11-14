@@ -5,8 +5,21 @@
 # - pull_request: only quick Linux checks (leaks, format, clippy, feature
 #   contracts, reference images, docs, book), no tests. Authors run the
 #   tests on their own machine before opening the pull request.
-# - push to main and workflow_dispatch: the full matrix (macOS, Windows,
-#   feature tests, Miri, MSRV, C/C++, web), after the merge.
+# - push to main or to a release-* branch (the patch branches, STABILITY.md,
+#   CONTRIBUTING.md "Releasing") and workflow_dispatch: the full matrix
+#   (macOS, Windows, feature tests, Miri, MSRV, C/C++, web), after the merge.
+#   The gate is `github.event_name != 'pull_request'`, not the branch name, so
+#   a patch release is tagged on a commit that ran the same matrix as one on
+#   main. There is no merge queue (no `merge_group` trigger): pull requests
+#   into a release-* branch run the quick tier like any other.
+# The API snapshots job is a quick check as well: it fails when api/ (the
+# committed listing of the public API) differs from the code
+# (scripts/api-snapshots.py, CONTRIBUTING.md "API snapshots").
+# The Semver job is one of the quick checks: it runs in every tier, compares
+# the published crates' API with the last crates.io release, and reads the
+# `breaking` label when it runs (scripts/semver-checks.py, CONTRIBUTING.md
+# "Semver checks"; a re-run sees a label added later, as the Reference images
+# job does).
 # A pull request labelled `full-ci` runs the full matrix too (for risky
 # platform changes). Full-tier-only jobs carry
 # `if: github.event_name != 'pull_request' || <full-ci label>`.
@@ -21,22 +34,24 @@
 # added, starts this workflow on the branch with workflow_dispatch.
 #
 # Build caches are saved only by runs on main (`save-if`). Every other run
-# can restore those. Saving elsewhere fills the repository's 10 GB cache
-# quota, and GitHub then evicts main's caches: the next runs rebuild every
-# dependency.
+# (release-* branches too) can restore those. Saving elsewhere fills the
+# repository's 10 GB cache quota, and GitHub then evicts main's caches: the
+# next runs rebuild every dependency.
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    # release-*: the patch branches (STABILITY.md); the Semver job fails any
+    # break there.
+    branches: [main, 'release-*']
   pull_request:
     # Not `edited` or `labeled`: see the header and pr-events.yml.
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 # A new push to a pull request cancels its older run; every commit on main
-# keeps its own full run.
+# or on a release-* branch keeps its own full run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -91,8 +106,12 @@ jobs:
           components: rustfmt
       - name: Naming inventory
         run: python3 scripts/check-naming.py
+      # The fragments (a breaking entry needs what to write instead and a
+      # before/after snippet) and the script's own rules.
       - name: Changelog fragments
-        run: python3 scripts/changelog.py --check
+        run: |
+          python3 scripts/changelog.py --check
+          python3 scripts/changelog.py --selftest
       # The release guard (CONTRIBUTING.md "Releasing") and the guide's note.
       - name: Release scripts
         run: |
@@ -253,6 +272,9 @@ jobs:
           - name: engine with only a window (2D)
             scope: -p ponko
             args: --no-default-features --features window
+          - name: engine with every image format
+            scope: -p ponko
+            args: --no-default-features --features window,image-formats
           # On Linux this lints the feature's shared code and the path that
           # does nothing; the macOS adapter itself is linted in the feature
           # tests' macOS leg (a second macOS runner per pull request would
@@ -554,6 +576,18 @@ jobs:
       - name: Tests, engine with no default features
         if: ${{ !cancelled() }}
         run: cargo test -p ponko --tests --no-fail-fast --no-default-features
+      # JPEG off (the no-default-features run above) names the feature in its
+      # error; a 2D build with only JPEG loads one; every format loads its own.
+      - name: Tests, 2D engine with JPEG only
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test -p ponko --no-fail-fast --no-default-features --features image-jpeg --test image_formats
+          cargo test -p ponko --no-fail-fast --no-default-features --features image-jpeg --lib assets::
+      - name: Tests, engine with every image format
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test -p ponko --no-fail-fast --features image-formats --test image_formats
+          cargo test -p ponko --no-fail-fast --features image-formats --lib assets::
       # Systems called through subsecond's jump table (no dx attached) behave the same.
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
@@ -613,6 +647,125 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo doc --workspace --no-deps
+
+  # The API of the published crates against the last crates.io release, with
+  # cargo-semver-checks. scripts/semver-checks.py decides what a break means:
+  # on a release-* branch (or a pull request into one) any break fails; on
+  # main, a break this change adds passes only with the `breaking` label and a
+  # `### Breaking changes` changelog fragment; and the label itself fails
+  # without such a fragment, break found or not. Breaks that earlier merged
+  # changes announced don't fail later pull requests. Read CONTRIBUTING.md,
+  # "Semver checks", for how to act on a failure.
+  #
+  # The tool reads rustdoc's JSON, whose format changes with the Rust release,
+  # so the tool and the Rust version are pinned together: to move to a newer
+  # Rust, move the tool to a release that supports it (its changelog says
+  # which rustdoc formats it reads) and run the job on a pull request.
+  # No pull_request_target: the labels are read through the API with a
+  # read-only token, and the code that runs is the pull request's own.
+  semver:
+    name: Semver checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      SEMVER_CHECKS_VERSION: 0.51.0
+      # Old crates.io releases are built with today's Rust: their warnings
+      # must not fail the build.
+      RUSTFLAGS: ""
+      RUSTDOCFLAGS: ""
+      GH_TOKEN: ${{ github.token }}
+      EVENT: ${{ github.event_name }}
+      BASE_REF: ${{ github.base_ref }}
+      REF_NAME: ${{ github.ref_name }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      PR: ${{ github.event.pull_request.number }}
+      SHA: ${{ github.sha }}
+      REPO: ${{ github.repository }}
+    steps:
+      # Full history: the comparison with the commit a change is based on.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: The script's own checks
+        run: python3 scripts/semver-checks.py selftest
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: semver
+      - name: Cache cargo-semver-checks binary
+        id: semver-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-semver-checks
+          key: cargo-semver-checks-${{ runner.os }}-${{ runner.arch }}-${{ env.SEMVER_CHECKS_VERSION }}
+      - uses: taiki-e/install-action@v2
+        if: steps.semver-cache.outputs.cache-hit != 'true'
+        with:
+          tool: cargo-semver-checks@${{ env.SEMVER_CHECKS_VERSION }}
+      - run: cargo semver-checks --version
+      - name: Check the API of every published crate
+        run: python3 scripts/semver-checks.py run
+
+  # The public API of every published crate, listed in api/ (scripts/api-snapshots.py,
+  # CONTRIBUTING.md "API snapshots"). The job regenerates the listing and fails
+  # with a diff when it differs from the committed files, so every added,
+  # renamed or removed public item shows up in review, not only the breaking
+  # ones (the Semver job above). The listing comes from `cargo public-api`,
+  # which reads rustdoc's JSON; that format changes with every nightly, so the
+  # tool and the nightly are pinned together in the script (the pins step
+  # hands them to the steps below). Nothing here runs tests.
+  api-snapshots:
+    name: API snapshots
+    runs-on: ubuntu-latest
+    env:
+      # The script sets its own flags: the nightly's new lints must not fail it.
+      RUSTFLAGS: ""
+      RUSTDOCFLAGS: ""
+      API_SNAPSHOTS_REGENERATED: ${{ github.workspace }}/api-regenerated
+    steps:
+      - uses: actions/checkout@v7
+      - name: The script's own checks, and its pinned versions
+        run: |
+          python3 scripts/api-snapshots.py selftest
+          python3 scripts/api-snapshots.py pins >> "$GITHUB_ENV"
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.API_NIGHTLY }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: api-snapshots
+      - name: Cache cargo-public-api binary
+        id: api-tool-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-public-api
+          key: cargo-public-api-${{ runner.os }}-${{ runner.arch }}-${{ env.API_TOOL_VERSION }}
+      - uses: taiki-e/install-action@v2
+        if: steps.api-tool-cache.outputs.cache-hit != 'true'
+        with:
+          tool: cargo-public-api@${{ env.API_TOOL_VERSION }}
+      - run: cargo public-api --version
+      - name: Regenerate the listing and compare it with api/
+        run: python3 scripts/api-snapshots.py check
+      # Only when the check failed: the regenerated files, for anyone who
+      # cannot run the tool themselves.
+      - name: Upload the regenerated listing
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-regenerated
+          path: api-regenerated
+          if-no-files-found: ignore
 
   book:
     name: Book
@@ -758,6 +911,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: web
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --examples
+      # Image decoders work in the browser build too, with every format on.
+      - run: cargo check -p ponko --target wasm32-unknown-unknown --features image-formats
       # The 3D examples (the 3D browser smoke fixture among them) need the feature.
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
       # The accessibility feature has no web adapter: it must build and do nothing.
@@ -1005,6 +1160,60 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  # The `ponko new` templates (crates/ponko_cli/templates) against this
+  # engine: the CLI's unit tests, then each template generated with
+  # `--path .`, type-checked (the CLI's end-to-end test) and its own tests
+  # run. Linux only. A pull request runs it only when it changes the CLI or
+  # its templates; the full tier always does (an engine change can break a
+  # template too).
+  templates:
+    name: Project templates
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      FULL: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # Every generated project builds into this one folder, so the engine
+      # and its dependencies build once per feature set.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/templates
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Did the CLI or its templates change?
+        id: changed
+        run: |
+          if [ "$FULL" = "true" ] || git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -q '^crates/ponko_cli/'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Nothing under crates/ponko_cli changed: skipping the template builds."
+          fi
+      - name: Install ALSA and udev headers (audio, gamepads)
+        if: steps.changed.outputs.run == 'true'
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changed.outputs.run == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changed.outputs.run == 'true'
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: templates
+      - name: The CLI's unit tests, and each template generated and checked
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          cargo test -p ponko_cli
+          cargo test -p ponko_cli --test new -- --ignored
+      - name: Each template's own tests
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          cargo build -p ponko_cli
+          cd "$RUNNER_TEMP"
+          for kind in 2d 3d headless; do
+            "$CARGO_TARGET_DIR/debug/ponko" new "game-$kind" "--$kind" --path "$GITHUB_WORKSPACE"
+            (cd "game-$kind" && cargo test)
+          done
+
   # Single check for branch protection: passes only if
   # every job above passed. Requiring one job keeps the rule valid when jobs
   # are added or renamed. Jobs a plain pull request skips (fast tier) are
@@ -1013,7 +1222,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
+    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, semver, api-snapshots, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles, templates]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

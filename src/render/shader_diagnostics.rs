@@ -2,7 +2,7 @@
 //! game's code, the engine's entry points) into a [`ShaderDiagnostic`] that
 //! points at the line in the game's own WGSL.
 
-use crate::three::{ShaderDiagnostic, ShaderKind};
+use crate::render::{ShaderDiagnostic, ShaderKind};
 use wgpu::naga;
 
 /// The line before the game's code in every composed shader.
@@ -29,9 +29,14 @@ pub(crate) fn diagnose(
     variant: &str,
     composed: &str,
 ) -> Result<(), Box<ShaderDiagnostic>> {
-    if kind == ShaderKind::Material
-        && let Some(game) = game_range(composed)
-        && let Some((range, message)) = material_contract(&composed[game.clone()])
+    type Contract = fn(&str) -> Option<(std::ops::Range<usize>, String)>;
+    let contract: Contract = match kind {
+        ShaderKind::Material => material_contract,
+        ShaderKind::Sprite => sprite_contract,
+        _ => |_: &str| None,
+    };
+    if let Some(game) = game_range(composed)
+        && let Some((range, message)) = contract(&composed[game.clone()])
     {
         let range = range.start + game.start..range.end + game.start;
         return Err(build(
@@ -40,7 +45,15 @@ pub(crate) fn diagnose(
             variant,
             composed,
             message,
-            Some((range, "material contract".into())),
+            Some((
+                range,
+                if kind == ShaderKind::Sprite {
+                    "sprite shader contract"
+                } else {
+                    "material contract"
+                }
+                .into(),
+            )),
             Vec::new(),
         ));
     }
@@ -66,8 +79,15 @@ pub(crate) fn diagnose(
             ));
         }
     };
-    let result = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
-        .validate(&module);
+    // Sprite shaders run on every GPU the engine supports, WebGL2
+    // included: check them against what all of them have, so a shader
+    // that would fail in a browser fails on the developer's machine too.
+    let capabilities = if kind == ShaderKind::Sprite {
+        naga::valid::Capabilities::empty()
+    } else {
+        naga::valid::Capabilities::all()
+    };
+    let result = naga::valid::Validator::new(naga::valid::ValidationFlags::all(), capabilities).validate(&module);
     if let Err(e) = result {
         // The error, then what caused it, from the outside in.
         let mut message = e.as_inner().to_string();
@@ -189,8 +209,59 @@ fn material_contract(user: &str) -> Option<(std::ops::Range<usize>, String)> {
     None
 }
 
+/// A sprite shader's rules: a `fragment` hook with the right signature,
+/// no entry points, no bindings.
+fn sprite_contract(user: &str) -> Option<(std::ops::Range<usize>, String)> {
+    let tokens = contract_tokens(user);
+    let mut hook = None;
+    for (i, (token, span)) in tokens.iter().enumerate() {
+        if *token == "@"
+            && tokens
+                .get(i + 1)
+                .is_some_and(|t| matches!(t.0, "vertex" | "fragment" | "compute"))
+        {
+            return Some((span.clone(), "the sprite hook `fragment` is an ordinary function, not a shader-stage entry point; expected `fn fragment(p: SpritePixel) -> vec4<f32>`; remove the @vertex/@fragment/@compute attribute and let the engine provide the entry points".into()));
+        }
+        if *token == "@" && tokens.get(i + 1).is_some_and(|t| matches!(t.0, "group" | "binding")) {
+            return Some((span.clone(), "sprite shaders may not declare bindings: every @group/@binding is the engine's; use material.params, material_sample0/1 (the material's textures) and sprite_sample instead".into()));
+        }
+        if *token != "fn" || tokens.get(i + 1).is_none_or(|t| t.0 != "fragment") {
+            continue;
+        }
+        let signature: Vec<_> = tokens
+            .iter()
+            .skip(i + 2)
+            .take_while(|t| t.0 != "{")
+            .map(|t| t.0)
+            .collect();
+        let tail = [")", "->", "vec4", "<", "f32", ">"];
+        let valid = signature.len() >= 4
+            && signature[0] == "("
+            && signature[2] == ":"
+            && signature[3] == "SpritePixel"
+            && (signature[4..] == tail || (signature.get(4) == Some(&",") && signature[5..] == tail));
+        if !valid {
+            return Some((
+                span.clone(),
+                "sprite hook `fragment` has the wrong signature; expected `fn fragment(p: SpritePixel) -> vec4<f32>`"
+                    .into(),
+            ));
+        }
+        hook = Some(span.clone());
+    }
+    match hook {
+        Some(_) => None,
+        None => Some((
+            0..user.len().min(1),
+            "a sprite shader needs a `fragment` hook: `fn fragment(p: SpritePixel) -> vec4<f32> { return p.color; }`"
+                .into(),
+        )),
+    }
+}
+
 /// An unsupported material/storage combination, located in the user hook.
 /// Comments do not count as reads of the engine's `items` buffer.
+#[cfg(feature = "3d")]
 pub(crate) fn require_material_storage(name: &str, variant: &str, user: &str) -> Result<(), Box<ShaderDiagnostic>> {
     let Some((_, span)) = contract_tokens(user).into_iter().find(|t| t.0 == "items") else {
         return Ok(());
@@ -258,7 +329,7 @@ fn build(
     diagnostic
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "3d"))]
 mod tests {
     use super::*;
     use crate::render::{compose_compute, compose_effect, compose_shader};

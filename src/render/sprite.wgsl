@@ -54,3 +54,18 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VertexOut {
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     return textureSample(sprite_texture, sprite_sampler, in.uv) * in.color;
 }
+
+// Blend modes (`BlendMode`): multiply premultiplies the color, so that
+// transparent parts leave what's behind unchanged.
+@fragment
+fn fs_multiply(in: VertexOut) -> @location(0) vec4<f32> {
+    let c = textureSample(sprite_texture, sprite_sampler, in.uv) * in.color;
+    return vec4<f32>(c.rgb * c.a, c.a);
+}
+
+// Premultiplied: the texture already is; the tint is premultiplied here.
+@fragment
+fn fs_premultiplied(in: VertexOut) -> @location(0) vec4<f32> {
+    let tint = vec4<f32>(in.color.rgb * in.color.a, in.color.a);
+    return textureSample(sprite_texture, sprite_sampler, in.uv) * tint;
+}

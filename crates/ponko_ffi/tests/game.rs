@@ -174,6 +174,7 @@ fn built_in_systems_are_removed_by_their_constants() {
             PONKO_SYSTEM_ANIMATE_SPRITES,
             PONKO_SYSTEM_DRAW_TILEMAPS,
             PONKO_SYSTEM_DRAW_SPRITES,
+            PONKO_SYSTEM_DRAW_PARTICLES,
             PONKO_SYSTEM_UPDATE_ANIMATORS,
             PONKO_SYSTEM_UPDATE_PARTICLES,
             PONKO_SYSTEM_UPDATE_AUDIO3D,
@@ -203,6 +204,7 @@ fn built_in_systems_are_removed_by_their_constants() {
         (PONKO_SYSTEM_UPDATE_ANIMATORS, Systems::UPDATE_ANIMATORS),
         (PONKO_SYSTEM_UPDATE_PARTICLES, Systems::UPDATE_PARTICLES),
         (PONKO_SYSTEM_UPDATE_AUDIO3D, Systems::UPDATE_AUDIO3D),
+        (PONKO_SYSTEM_DRAW_PARTICLES, Systems::DRAW_PARTICLES),
     ];
     for (c, rust) in pairs {
         assert_eq!(c, rust.to_bits());

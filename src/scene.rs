@@ -1,15 +1,17 @@
 //! Scenes and prefabs: worlds and entities kept in files under `assets/`.
 //!
 //! A scene is a whole world (the [`WorldReflect::save`] format): a level, a
-//! menu, a test setup. A prefab is one entity's components, spawned as many
-//! times as you like: a tree, an enemy, a building. Both are JSON, so they
+//! menu, a test setup. A prefab is an entity or a tree of them, spawned as
+//! many times as you like: a tree, an enemy, a cart with its wheels. Both are JSON, so they
 //! diff well, and agents and the editor write them like any other file.
 
 use serde_json::{Value, json};
 
+use std::collections::HashMap;
+
 use crate::{ctx::Ctx, reflect::WorldReflect};
 use glam::Vec2;
-use ponko_ecs::Entity;
+use ponko_ecs::{Component, Entity};
 
 /// Loads one asset a scene names (`Assets::scene_asset_field`).
 type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), crate::error::Error>>;
@@ -23,7 +25,10 @@ pub(crate) struct SceneAssetField {
 }
 
 pub(crate) const PREFAB_FORMAT: &str = "ponko-prefab";
+/// The prefab version of files of one entity.
 pub(crate) const PREFAB_VERSION: u64 = 1;
+/// The prefab version of files of several entities (a tree).
+pub(crate) const PREFAB_TREE_VERSION: u64 = 2;
 
 impl Ctx {
     /// Replaces the world with the scene in `assets/<path>` (written by
@@ -59,7 +64,9 @@ impl Ctx {
     /// | [`spatial`](Self::spatial) neighbor grid | Refilled at the start of the next simulation tick. |
     /// | 3D navigation (`NavMesh3D`, with the `navmesh` feature) | The baked mesh, a resource, is kept. Crowd agents are components, so they go with their entities; `step_navmesh3d` frees the old agents' crowd slots at its next step, and agents added to the new scene's entities (even with the same ids) start from where they are. |
     /// | [`Attached`](crate::d2::Attached) | Reflected: the scene's attachments, to the scene's entities. [`follow_attachments`](crate::systems::follow_attachments) places them at its next run and despawns those whose entity isn't in the scene. |
-    /// | Skeletons, joint attachments, skinned and morphing models | Components: gone with their entities unless the game adds them again. The engine's skinning scratch is rebuilt every frame from the world as it is. |
+    /// | Skeletons and morph weights | Components that aren't saved: gone with their entities unless the game adds them again. The engine's skinning scratch is rebuilt every frame from the world as it is. |
+    /// | [`SkinOf`](crate::anim::SkinOf), [`AttachToJoint`](crate::anim::AttachToJoint), 3D joints | Reflected: the scene's, to the scene's entities. Skeletons aren't saved, so skins and joint attachments show once the game gives their entity a skeleton again. |
+    /// | [`PrefabParts`] | Reflected: the scene's prefab trees keep their parts, for [`despawn_prefab`](Self::despawn_prefab). |
     /// | Assets | Textures, meshes and collision files the scene names are loaded first and stay cached. Loaded assets are never unloaded by a load. |
     /// | Prefabs | Kept: files [`spawn_prefab`](Self::spawn_prefab) read stay cached, so spawning one after a load doesn't read it again. |
     /// | Positional sounds | A sound playing from an entity stops at the next audio update unless that entity still has the same playing source; other sounds and music keep playing. |
@@ -188,7 +195,18 @@ impl Ctx {
     }
 
     /// Spawns the prefab in `assets/<path>` with its position at `at` (its
-    /// rotation and scale as saved). The file is read once, then kept.
+    /// rotation and scale as saved) and returns its root. The file is read
+    /// once, then kept.
+    ///
+    /// A prefab is one entity or a tree of them (a cart with its wheels, a
+    /// character with what it carries): the parts are placed relative to the
+    /// root, components that name another entity of the prefab
+    /// ([`Attached`](crate::d2::Attached), joints, skin targets, your own
+    /// components holding an [`Entity`]) name the new copy, and the root gets
+    /// [`PrefabParts`] listing the others, for
+    /// [`despawn_prefab`](Self::despawn_prefab). A prefab may include another
+    /// one, with its root's components changed for this use (see the guide's
+    /// "Prefabs with children").
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -201,24 +219,398 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
-    /// missing or a component isn't reflected,
-    /// [`Json`](crate::error::ErrorKind::Json) if it isn't a prefab or a component
-    /// doesn't fit, and the error of an asset it names that can't be loaded.
-    /// The error's path is `path`; nothing is spawned then.
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file (or one
+    /// it includes) is missing or a component isn't reflected,
+    /// [`Json`](crate::error::ErrorKind::Json) if it isn't a prefab, a component
+    /// doesn't fit, or prefabs include each other in a loop, and the error of
+    /// an asset it names that can't be loaded. The error's path is `path`;
+    /// nothing is spawned then.
     pub fn spawn_prefab(&mut self, path: &str, at: impl Into<Placement>) -> Result<Entity, crate::error::Error> {
         let in_prefab = |e: crate::error::Error| e.context(path).with_path(path);
-        if !self.assets.prefabs.contains_key(path) {
-            let (_, text) = self.assets.read_text(path)?;
-            let prefab: Value = serde_json::from_str(&text).map_err(|e| in_prefab(e.into()))?;
-            let components = components_of(&prefab)
-                .map_err(|e| in_prefab(crate::error::Error::new(crate::error::ErrorKind::Json, e)))?;
-            self.load_scene_assets(&components).map_err(in_prefab)?;
-            self.assets.prefabs.insert(path.to_string(), components);
+        let file = self.prefab_file(path).map_err(in_prefab)?;
+        if let [single] = &file.entries[..]
+            && single.prefab.is_none()
+        {
+            // One entity: spawned whole, as files from before trees were.
+            let components = Value::Object(single.components.clone());
+            return spawn_at(&mut self.world, components, at.into()).map_err(in_prefab);
         }
-        let components = self.assets.prefabs[path].clone();
-        spawn_at(&mut self.world, components, at.into()).map_err(in_prefab)
+        let mut tree = Tree::default();
+        let spawned = self
+            .spawn_prefab_entities(path, &file, &mut Vec::new(), &mut tree)
+            .and_then(|root| {
+                place_root(&mut self.world, root, at.into())?;
+                // Parents first: a part's parent is placed before the part.
+                for &(part, parent) in tree.relative.iter().rev() {
+                    compose(&mut self.world, part, parent);
+                }
+                Ok(root)
+            });
+        spawned.map_err(|e| {
+            for &e in &tree.spawned {
+                self.world.despawn(e);
+            }
+            in_prefab(e)
+        })
     }
+
+    /// Despawns `root` and the [`PrefabParts`] that
+    /// [`spawn_prefab`](Self::spawn_prefab) gave it, and returns how many
+    /// entities that was. An entity without parts is despawned alone, so this
+    /// also suits entities that didn't come from a prefab.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let cart = ctx.spawn_prefab("prefabs/cart.json", vec2(100.0, 200.0)).expect("cart");
+    /// ctx.despawn_prefab(cart); // the cart and its wheels
+    /// # }
+    /// ```
+    pub fn despawn_prefab(&mut self, root: Entity) -> usize {
+        let parts = self
+            .world
+            .get::<PrefabParts>(root)
+            .map(|p| p.0.clone())
+            .unwrap_or_default();
+        let mut n = usize::from(self.world.despawn(root));
+        for part in parts {
+            n += usize::from(self.world.despawn(part));
+        }
+        n
+    }
+
+    /// The prefab file `path`, read, checked and its assets loaded the first
+    /// time, then cached.
+    fn prefab_file(&mut self, path: &str) -> Result<std::rc::Rc<PrefabFile>, crate::error::Error> {
+        if let Some(file) = self.assets.prefabs.get(path) {
+            return Ok(file.clone());
+        }
+        let (_, text) = self.assets.read_text(path)?;
+        let json: Value = serde_json::from_str(&text)?;
+        let file = PrefabFile::parse(&json).map_err(|e| crate::error::Error::new(crate::error::ErrorKind::Json, e))?;
+        for entry in &file.entries {
+            self.load_scene_assets(&Value::Object(entry.components.clone()))?;
+        }
+        let file = std::rc::Rc::new(file);
+        self.assets.prefabs.insert(path.to_string(), file.clone());
+        Ok(file)
+    }
+
+    /// Spawns `file`'s entities (the file at `path`) where the file puts
+    /// them, relative to their root, and returns the root. Adds every entity
+    /// it spawns to `tree.spawned` (also on error, so the caller can despawn
+    /// them) and each part with the entity its transform is relative to to
+    /// `tree.relative`, children before parents. `including` is the chain of
+    /// prefab files being spawned, to stop loops.
+    fn spawn_prefab_entities(
+        &mut self,
+        path: &str,
+        file: &PrefabFile,
+        including: &mut Vec<String>,
+        tree: &mut Tree,
+    ) -> Result<Entity, crate::error::Error> {
+        if including.iter().any(|p| p == path) || including.len() >= MAX_PREFAB_DEPTH {
+            let chain = including.join(" -> ");
+            return Err(crate::error::Error::new(
+                crate::error::ErrorKind::Json,
+                format!("prefabs include each other in a loop or too deep: {chain} -> {path}"),
+            ));
+        }
+        including.push(path.to_string());
+        let first = tree.spawned.len();
+        // Every entity exists before any component is read, so a component
+        // can name an entity that comes later in the file. Included prefabs
+        // first: they can't name this file's entities.
+        let mut map = HashMap::with_capacity(file.entries.len());
+        let mut entities = Vec::with_capacity(file.entries.len());
+        for entry in &file.entries {
+            let e = match &entry.prefab {
+                Some(inner) => {
+                    let nested = self.prefab_file(inner).map_err(|e| e.context(inner.as_str()))?;
+                    self.spawn_prefab_entities(inner, &nested, including, tree)
+                        .map_err(|e| e.context(inner.as_str()))?
+                }
+                None => {
+                    let e = self.world.spawn((Spawning,));
+                    tree.spawned.push(e);
+                    e
+                }
+            };
+            if let Some(id) = entry.id {
+                map.insert(id, e);
+            }
+            entities.push(e);
+        }
+        including.pop();
+        Entity::with_remap(&map, || {
+            for (entry, &e) in file.entries.iter().zip(&entities) {
+                for (name, value) in &entry.components {
+                    self.world.set_json(e, name, value.clone())?;
+                }
+                self.world.remove::<Spawning>(e);
+            }
+            Ok::<_, crate::error::Error>(())
+        })?;
+        let root = entities[0];
+        for &part in &entities[1..] {
+            tree.relative.push((part, root));
+        }
+        if tree.spawned.len() - first > 1 {
+            let parts = tree.spawned[first..].iter().copied().filter(|&e| e != root).collect();
+            self.world.insert(root, PrefabParts(parts));
+        }
+        Ok(root)
+    }
+}
+
+/// Prefabs included in prefabs deeper than this are refused (a loop, most likely).
+const MAX_PREFAB_DEPTH: usize = 16;
+
+/// Marks an entity of a prefab whose components aren't set yet.
+#[derive(Component)]
+struct Spawning;
+
+/// What spawning a prefab tree made so far.
+#[derive(Default)]
+struct Tree {
+    spawned: Vec<Entity>,
+    /// (part, the entity its transform is relative to), children first.
+    relative: Vec<(Entity, Entity)>,
+}
+
+/// The other entities [`Ctx::spawn_prefab`] spawned with a prefab's root: its
+/// parts, and the entities of the prefabs it includes. Reflected, so saved
+/// worlds and scenes keep it; [`Ctx::despawn_prefab`] removes them with the
+/// root, and [`save_prefab`](crate::assets::Assets::save_prefab) on the root
+/// saves them with it. A prefab of one entity has none.
+///
+/// ```no_run
+/// # use ponko::prelude::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let cart = ctx.spawn_prefab("prefabs/cart.json", vec2(0.0, 0.0)).expect("cart");
+/// let parts = ctx.world.get::<PrefabParts>(cart).map_or(0, |p| p.0.len());
+/// println!("a cart and {parts} parts");
+/// # }
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, Component)]
+pub struct PrefabParts(pub Vec<Entity>);
+
+/// A prefab file, checked: its entities, root first.
+#[derive(Debug, Clone)]
+pub(crate) struct PrefabFile {
+    entries: Vec<PrefabEntry>,
+}
+
+/// One entity of a prefab file.
+#[derive(Debug, Clone)]
+struct PrefabEntry {
+    /// Its id in the file, which components of the prefab use to name it.
+    /// Files of one entity have none.
+    id: Option<Entity>,
+    /// An included prefab, spawned here; `components` then change its root.
+    prefab: Option<String>,
+    components: serde_json::Map<String, Value>,
+}
+
+impl PrefabFile {
+    /// Reads a version-1 file (one entity) or a version-2 file (a tree).
+    fn parse(prefab: &Value) -> Result<Self, String> {
+        if prefab["format"] != PREFAB_FORMAT {
+            return Err(format!("not a prefab (expected \"format\": \"{PREFAB_FORMAT}\")"));
+        }
+        match prefab["version"].as_u64() {
+            Some(PREFAB_VERSION) => match &prefab["components"] {
+                Value::Object(c) if !c.is_empty() => Ok(Self {
+                    entries: vec![PrefabEntry {
+                        id: None,
+                        prefab: None,
+                        components: c.clone(),
+                    }],
+                }),
+                _ => Err("a prefab needs a non-empty \"components\" object".into()),
+            },
+            Some(PREFAB_TREE_VERSION) => {
+                let list = match &prefab["entities"] {
+                    Value::Array(list) if !list.is_empty() => list,
+                    _ => return Err("a version-2 prefab needs a non-empty \"entities\" list".into()),
+                };
+                let mut seen = std::collections::HashSet::new();
+                let entries = list
+                    .iter()
+                    .map(|item| {
+                        let id = item["entity"]
+                            .as_u64()
+                            .ok_or_else(|| format!("entity id missing or not a number: {}", item["entity"]))?;
+                        if !seen.insert(id) {
+                            return Err(format!("entity id {id} appears twice"));
+                        }
+                        let prefab = match &item["prefab"] {
+                            Value::Null => None,
+                            Value::String(p) => Some(p.clone()),
+                            other => return Err(format!("entity {id}: \"prefab\" is a file name, not {other}")),
+                        };
+                        let components = match &item["components"] {
+                            Value::Object(c) if !c.is_empty() || prefab.is_some() => c.clone(),
+                            Value::Null if prefab.is_some() => serde_json::Map::new(),
+                            _ => return Err(format!("entity {id} needs a non-empty \"components\" object")),
+                        };
+                        Ok(PrefabEntry {
+                            id: Some(Entity::from_bits(id)),
+                            prefab,
+                            components,
+                        })
+                    })
+                    .collect::<Result<_, String>>()?;
+                Ok(Self { entries })
+            }
+            _ => Err(format!(
+                "unsupported prefab version {} (this engine reads {PREFAB_VERSION} and {PREFAB_TREE_VERSION})",
+                prefab["version"]
+            )),
+        }
+    }
+
+    /// A file of one entity's `components`, as `save_prefab` writes it.
+    pub(crate) fn single(components: serde_json::Map<String, Value>) -> Self {
+        Self {
+            entries: vec![PrefabEntry {
+                id: None,
+                prefab: None,
+                components,
+            }],
+        }
+    }
+}
+
+/// Puts a prefab tree's root at `at`, as [`spawn_at`] does for one entity.
+fn place_root(world: &mut ponko_ecs::World, root: Entity, at: Placement) -> Result<(), crate::error::Error> {
+    use crate::d2::Transform as T2;
+    match at {
+        Placement::Position2(at) => match world.get_mut::<T2>(root) {
+            Some(t) => t.position = at,
+            None => drop(world.insert(root, T2::at(at))),
+        },
+        Placement::D2(at) => drop(world.insert(root, at)),
+        #[cfg(feature = "3d")]
+        Placement::Position3(at) => match world.get_mut::<crate::d3::Transform>(root) {
+            Some(t) => t.position = at,
+            None => drop(world.insert(root, crate::d3::Transform::at(at))),
+        },
+        #[cfg(feature = "3d")]
+        Placement::D3(at) => drop(world.insert(root, at)),
+    }
+    Ok(())
+}
+
+/// Turns `part`'s transforms, relative to `parent`'s, into world ones.
+fn compose(world: &mut ponko_ecs::World, part: Entity, parent: Entity) {
+    use crate::d2::Transform as T2;
+    if let Some(&p) = world.get::<T2>(parent)
+        && let Some(t) = world.get_mut::<T2>(part)
+    {
+        *t = T2 {
+            position: p.position + Vec2::from_angle(p.rotation).rotate(t.position * p.scale),
+            rotation: p.rotation + t.rotation,
+            scale: p.scale * t.scale,
+        };
+    }
+    #[cfg(feature = "3d")]
+    if let Some(&p) = world.get::<crate::d3::Transform>(parent)
+        && let Some(t) = world.get_mut::<crate::d3::Transform>(part)
+    {
+        t.position = p.position + p.rotation * (p.scale * t.position);
+        t.rotation = p.rotation * t.rotation;
+        t.scale *= p.scale;
+    }
+}
+
+/// `part`'s transforms relative to `root`'s (the inverse of [`compose`];
+/// exact unless a scale is zero, or non-uniform and rotated), written into
+/// its components `json`.
+pub(crate) fn relative_to(world: &ponko_ecs::World, part: Entity, root: Entity, json: &mut Value) {
+    use crate::d2::Transform as T2;
+    let divide = |a: f32, b: f32| if b == 0.0 { a } else { a / b };
+    if let (Some(&r), Some(&t)) = (world.get::<T2>(root), world.get::<T2>(part)) {
+        let local = T2 {
+            position: Vec2::from_angle(-r.rotation).rotate(t.position - r.position),
+            rotation: t.rotation - r.rotation,
+            scale: t.scale,
+        };
+        let local = T2 {
+            position: Vec2::new(divide(local.position.x, r.scale.x), divide(local.position.y, r.scale.y)),
+            scale: Vec2::new(divide(local.scale.x, r.scale.x), divide(local.scale.y, r.scale.y)),
+            ..local
+        };
+        if let Ok(v) = serde_json::to_value(local) {
+            json["Transform2D"] = v;
+        }
+    }
+    #[cfg(feature = "3d")]
+    if let (Some(&r), Some(&t)) = (
+        world.get::<crate::d3::Transform>(root),
+        world.get::<crate::d3::Transform>(part),
+    ) {
+        let d = |a: glam::Vec3| glam::Vec3::new(divide(a.x, r.scale.x), divide(a.y, r.scale.y), divide(a.z, r.scale.z));
+        let local = crate::d3::Transform {
+            position: d(r.rotation.inverse() * (t.position - r.position)),
+            rotation: r.rotation.inverse() * t.rotation,
+            scale: d(t.scale),
+        };
+        if let Ok(v) = serde_json::to_value(local) {
+            json["Transform3D"] = v;
+        }
+    }
+}
+
+/// `root` and what [`save_prefab`](crate::assets::Assets::save_prefab) saves
+/// with it, root first: its [`PrefabParts`], then whatever is attached to
+/// those (by [`Attached`](crate::d2::Attached), a skin or joint attachment,
+/// or a 3D joint between two of them), until nothing more is.
+pub(crate) fn prefab_members(world: &ponko_ecs::World, root: Entity) -> Vec<Entity> {
+    let mut members = vec![root];
+    if let Some(parts) = world.get::<PrefabParts>(root) {
+        members.extend(parts.0.iter().copied().filter(|&p| p != root));
+    }
+    members.retain(|&e| world.is_alive(e));
+    let mut set: std::collections::HashSet<Entity> = members.iter().copied().collect();
+    let everyone: Vec<Entity> = world
+        .raw_ref()
+        .archetypes()
+        .iter()
+        .flat_map(|a| a.entities().iter().copied())
+        .collect();
+    // Whether `e` hangs off an entity of `set`.
+    let attached = |e: Entity, set: &std::collections::HashSet<Entity>| {
+        let mut to = Vec::new();
+        to.extend(world.get::<crate::d2::Attached>(e).map(|a| a.to));
+        #[cfg(feature = "3d")]
+        {
+            to.extend(world.get::<crate::anim::SkinOf>(e).map(|s| s.0));
+            to.extend(world.get::<crate::anim::AttachToJoint>(e).map(|a| a.skeleton));
+        }
+        #[cfg(feature = "physics3d")]
+        if let Some(j) = world.get::<crate::d3::Joint>(e)
+            && set.contains(&j.body_a)
+            && set.contains(&j.body_b)
+        {
+            return true;
+        }
+        to.iter().any(|t| set.contains(t))
+    };
+    loop {
+        let found: Vec<Entity> = everyone
+            .iter()
+            .copied()
+            .filter(|e| !set.contains(e) && attached(*e, &set))
+            .collect();
+        if found.is_empty() {
+            break;
+        }
+        set.extend(found.iter().copied());
+        members.extend(found);
+    }
+    members[1..].sort_unstable();
+    members
 }
 
 impl crate::assets::Assets {
@@ -333,23 +725,6 @@ fn field_names(json: &Value, component: &str, field: &str, out: &mut Vec<String>
         }
         Value::Array(list) => list.iter().for_each(|v| field_names(v, component, field, out)),
         _ => {}
-    }
-}
-
-/// A prefab file's components, checked.
-fn components_of(prefab: &Value) -> Result<Value, String> {
-    if prefab["format"] != PREFAB_FORMAT {
-        return Err(format!("not a prefab (expected \"format\": \"{PREFAB_FORMAT}\")"));
-    }
-    if prefab["version"].as_u64() != Some(PREFAB_VERSION) {
-        return Err(format!(
-            "unsupported prefab version {} (this engine reads {PREFAB_VERSION})",
-            prefab["version"]
-        ));
-    }
-    match &prefab["components"] {
-        Value::Object(c) if !c.is_empty() => Ok(prefab["components"].clone()),
-        _ => Err("a prefab needs a non-empty \"components\" object".into()),
     }
 }
 

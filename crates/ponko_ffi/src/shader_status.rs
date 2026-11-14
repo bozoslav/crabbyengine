@@ -17,6 +17,8 @@ pub const PONKO_SHADER_MATERIAL: u32 = 0;
 pub const PONKO_SHADER_EFFECT: u32 = 1;
 /// A compute pass (`ponko_ctx_create_compute`).
 pub const PONKO_SHADER_COMPUTE: u32 = 2;
+/// A sprite shader (`ponko_ctx_create_sprite_shader`).
+pub const PONKO_SHADER_SPRITE: u32 = 3;
 
 /// `PonkoShaderStatus::outcome`: made, and in use.
 pub const PONKO_SHADER_COMPILED: u32 = 0;
@@ -39,7 +41,7 @@ pub const PONKO_SHADER_RELOAD_FAILED: u32 = 3;
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PonkoShaderStatus {
-    /// `PONKO_SHADER_MATERIAL`, `PONKO_SHADER_EFFECT` or `PONKO_SHADER_COMPUTE`.
+    /// `PONKO_SHADER_MATERIAL`, `_EFFECT`, `_COMPUTE` or `_SPRITE`.
     pub kind: u32,
     /// `PONKO_SHADER_COMPILED`, `_RELOADED`, `_FAILED` or `_RELOAD_FAILED`.
     pub outcome: u32,
@@ -67,6 +69,7 @@ fn status_to_c(s: &ShaderStatus) -> PonkoShaderStatus {
         kind: match s.kind {
             ShaderKind::Material => PONKO_SHADER_MATERIAL,
             ShaderKind::Effect => PONKO_SHADER_EFFECT,
+            ShaderKind::Sprite => PONKO_SHADER_SPRITE,
             _ => PONKO_SHADER_COMPUTE,
         },
         outcome: match s.outcome {

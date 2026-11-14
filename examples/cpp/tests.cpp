@@ -198,6 +198,16 @@ static void scenes_and_prefabs() {
         ctx.load_scene("test-cpp-scene.json");
     });
     CHECK(loaded.size() == 2 && loaded.get<game::Health>(first).value == 9);
+    // A prefab with children: the root comes back, its parts are listed,
+    // and despawning the root takes them too.
+    ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto cart = ctx.spawn_prefab("prefabs/cart.json", {50, 60});
+        auto parts = ctx.prefab_parts(cart);
+        CHECK(parts.size() == 4 && ctx.world().size() == 5);
+        CHECK(ctx.world().get<ponko::transform2d>(cart).position.x == 50);
+        for (auto part : parts) CHECK(ctx.prefab_parts(part).empty());   // parts aren't roots
+        CHECK(ctx.despawn_prefab(cart) == 5 && ctx.world().size() == 0);
+    });
     // Offline, a lockstep load is a plain load; a failed one changes nothing.
     auto offline = ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         ctx.world().reflect<game::Health>({ponko::field("value", &game::Health::value)});
@@ -2056,6 +2066,35 @@ static void particles3d() {
     });
 }
 
+static void particles2d() {
+    ponko::game("particles 2d", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto e = ctx.world().spawn(ponko::transform_at({100, 100}));
+        auto sparks = ponko::particle_settings2d()
+                          .rate(0)
+                          .burst(12)
+                          .circle(4)
+                          .lifetime(1, 2)
+                          .size_over_life({{0, 1}, {1, 0}})
+                          .color_over_life({{0, {1, 0.6f, 0.1f, 1}}, {1, {1, 0, 0, 0}}})
+                          .blend(ponko::sprite_blend::additive)
+                          .z(3)
+                          .max_particles(64);
+        ctx.set_particle_emitter2d(e, sparks);
+        // Headless runs skip the frame phase; step the emitter by hand.
+        CHECK(ctx.particle_live_count2d(e) == 0);
+        ctx.particle_update2d(e, 0);
+        CHECK(ctx.particle_live_count2d(e) == 12);
+        ctx.particle_burst2d(e, 100);
+        ctx.particle_update2d(e, 0.1f);
+        CHECK(ctx.particle_live_count2d(e) == 64);
+        throws([&] { ctx.set_particle_emitter2d(e, ponko::particle_settings2d().lifetime(0, 1)); });
+        throws([&] { ctx.set_particle_emitter2d(e, ponko::particle_settings2d().size(2, 1)); });
+        throws([&] { ctx.set_particle_emitter2d(e, ponko::particle_settings2d().max_particles(0)); });
+        ctx.remove_particle_emitter2d(e);
+        throws([&] { ctx.particle_burst2d(e, 1); });
+    });
+}
+
 // A 4 x 4 m floor facing up, as a glTF file.
 static void ribbons_and_decals() {
     const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-floor.gltf";
@@ -2889,6 +2928,17 @@ static void native_coverage() {
         CHECK(ctx.action_down(jump) && ctx.action_pressed(jump) && !ctx.action_released(jump));
         CHECK(ctx.action_axis(jump) == 0 && !ctx.action_down(ponko::action_id::none()));
 
+        // Pressed this frame: a rebinding screen binds the answer directly (Space went down above).
+        ctx.feed_input(ponko::input_event::button(ponko::gamepad{1}, PONKO_GAMEPAD_WEST, true));
+        const auto fresh = ctx.pressed_this_frame();
+        CHECK(fresh.size() == 2 && fresh[0].is_key() && fresh[0].key() == PONKO_KEY_SPACE);
+        CHECK(fresh[1].is_gamepad_button() && fresh[1].pad().slot == 1 && fresh[1].button() == PONKO_GAMEPAD_WEST);
+        auto rebound = ctx.actions();
+        rebound.set("jump", ponko::action::button({fresh[1].binding()}));
+        ctx.set_actions(rebound);
+        CHECK(ctx.action_down("jump"));
+        throws_kind([&] { ctx.pressed_this_frame(-1.0f); }, PONKO_ERROR_INVALID);
+
         // try_ loaders: the error says what and where.
         auto missing = ctx.try_load_texture("no/such.png");
         CHECK(!missing && missing.kind() == PONKO_ERROR_NOT_FOUND);
@@ -3032,7 +3082,95 @@ static void wrapper_coverage() {
     CHECK(sheet.morph_target_count() == 1);
 }
 
+// Headless frames: a form typed into and clicked by node name.
+static void headless_frames_ui() {
+    using ponko::scenario_check;
+    ponko::input_scenario s;
+    s.type_text(2, "form.name", "Ada")
+        .expect(2, scenario_check::ui("form.name").exists(true).shown(true).focused(true).text("Ada"))
+        .click(4, "form.ok")
+        .expect(4, scenario_check::ui("form").shown(false))
+        .duration(6);
+    int closed = 0;
+    auto run = ponko::game("c++ frames", 640, 480)
+                   .headless_frames(true)
+                   .system([&](ponko::ctx& ctx) {
+                       auto ui = ctx.ui_retained();
+                       auto clicked = ui.take_click();
+                       if (clicked && clicked == ui.find("form.ok")) {
+                           ui.pop_screen();
+                           ++closed;
+                       }
+                   })
+                   .run_headless_scenario(s, [](ponko::ctx& ctx) {
+                       namespace u = ponko::ui;
+                       auto ui = ctx.ui_retained();
+                       auto root = ui.add_panel(u::none, u::fill());
+                       ui.set_name(root, "form");
+                       ui.set_name(ui.add_text_input(root, "", u::fixed(200, 30)), "form.name");
+                       ui.set_name(ui.add_button(root, "OK", u::fixed(200, 30)), "form.ok");
+                       CHECK(!ui.is_shown(root));
+                       ui.push_screen(root);
+                       CHECK(ui.is_shown(root));
+                   });
+    CHECK(run.report.passed() && run.report.inputs_applied == 2 && closed == 1);
+}
+
+static void levels_and_tilemaps() {
+    ponko::game("c++ levels", 1, 1).physics({0, 700}).run_headless(0, [](ponko::ctx& ctx) {
+        ponko::level_options options;
+        options.solid = {"Ground"};
+        options.z = 2.0f;
+        const ponko::entity root = ponko::spawn_level(ctx, "levels/meadow.tmx", {0, 0}, options);
+        CHECK(ponko::level_property_json(ctx, root, "title") == "\"Meadow\"");
+        throws_kind([&] { (void)ponko::level_property_json(ctx, root, "missing"); }, PONKO_ERROR_NOT_FOUND);
+        auto world = ctx.world();
+        int coins = 0, bodies = 0;
+        ponko::entity ground = 0, start = 0;
+        for (ponko::entity e : ponko::level_entities(ctx, root)) {
+            if (world.try_get<ponko::rigid_body>(e)) ++bodies;
+            try {
+                const ponko::level_object o = ponko::level_object_of(ctx, e);
+                const std::string cls = ponko::level_object_class(ctx, e);
+                if (cls == "Coin") { ++coins; CHECK(o.has_tile && o.shape == PONKO_LEVEL_SHAPE_RECT); }
+                if (cls == "Spawn") { start = e; CHECK(o.shape == PONKO_LEVEL_SHAPE_POINT && o.position.x == 48.0f); }
+                CHECK(ponko::level_object_layer(ctx, e) == "Objects");
+                continue;
+            } catch (const ponko::error&) {}
+            if (ground == 0) ground = e;
+        }
+        CHECK(coins == 6 && bodies > 0 && start != 0);
+        CHECK(ponko::level_object_name(ctx, start) == "Start");
+        throws([&] { (void)ponko::level_object_of(ctx, root); });
+
+        // A map built in code: autotile, flips, animation, parallax, solid rectangles.
+        const ponko::entity map = world.spawn(ponko::transform_at({0, 0}));
+        auto tiles = world.add_tilemap(map, world.tilemap(ground).style().sheet, 4, 3);
+        ponko::autotile_rule rule;
+        for (std::uint16_t i = 0; i < 16; ++i) rule.frames.push_back(i);
+        rule.outside_filled = false;
+        std::vector<bool> filled(12, false);
+        filled[1 * 4 + 1] = filled[1 * 4 + 2] = true;
+        ponko::tilemap_autotile(ctx, map, rule, filled);
+        CHECK(tiles.get(1, 1) == std::uint16_t(2) && tiles.get(2, 1) == std::uint16_t(8) && !tiles.get(0, 0));
+        ponko::tilemap_paint_autotile(ctx, map, rule, 1, 0, true);
+        CHECK(tiles.get(1, 0) == std::uint16_t(4) && tiles.get(1, 1) == std::uint16_t(3));
+        ponko::tilemap_set_flipped(ctx, map, 3, 2, 5, PONKO_TILE_FLIP_X | PONKO_TILE_FLIP_DIAGONAL);
+        CHECK(ponko::tilemap_flip(ctx, map, 3, 2) == (PONKO_TILE_FLIP_X | PONKO_TILE_FLIP_DIAGONAL) && tiles.get(3, 2) == std::uint16_t(5));
+        ponko::tilemap_animate(ctx, map, 5, {{5, 0.2f}, {6, 0.2f}});
+        ponko::tilemap_set_parallax(ctx, map, {0.5f, 0.5f}, {10, 10});
+        const auto rects = ponko::tilemap_solid_rects(ctx, map, {2, 3, 4, 8});
+        CHECK(rects.size() == 2);
+        CHECK(ponko::tilemap_spawn_colliders(ctx, map, {2, 3, 4, 8}) == 2);
+
+        CHECK(ponko::despawn_level(ctx, root));
+        CHECK(!ponko::despawn_level(ctx, root));
+        throws([&] { (void)ponko::spawn_level(ctx, "levels/nowhere.tmx", {0, 0}); });
+    });
+}
+
 int main() {
+    levels_and_tilemaps();
     abi_version_is_checked();
     declared_access();
     command_barriers();
@@ -3077,6 +3215,7 @@ int main() {
     navigation();
     navigation_carving();
     particles3d();
+    particles2d();
     ragdolls();
     contacts3d();
     ribbons_and_decals();
@@ -3090,5 +3229,6 @@ int main() {
     grid_views_match_engine_queries();
     native_coverage();
     wrapper_coverage();
+    headless_frames_ui();
     std::cout << "C++ wrapper tests passed\n";
 }

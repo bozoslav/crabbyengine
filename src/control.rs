@@ -1191,7 +1191,11 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "prefab.spawn",
-        "spawn a prefab from assets/ at a point; params: path (a .json file relative to assets/), at [x, y]. Returns the entity",
+        "spawn a prefab from assets/ at a point; params: path (a .json file relative to assets/), at [x, y]. Returns the root entity and its parts",
+    ),
+    (
+        "prefab.despawn",
+        "despawn a prefab's root and the parts spawned with it; params: entity (the root). Returns how many entities went",
     ),
     (
         "prefab.save",
@@ -1245,7 +1249,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "shaders.status",
-        "the game's custom shaders (material shaders, screen effects, compute passes): each one's last compile or hot reload result (compiled, reloaded, failed, reload_failed: the last good version stays), reload count, frame, and its errors with line and column in the game's own WGSL, cause and GPU variant",
+        "the game's custom shaders (sprite shaders, material shaders, screen effects, compute passes): each one's last compile or hot reload result (compiled, reloaded, failed, reload_failed: the last good version stays), reload count, frame, and its errors with line and column in the game's own WGSL, cause and GPU variant",
     ),
     (
         "perf.get",
@@ -1439,7 +1443,6 @@ fn perf_json(ctx: &Ctx, meshes: usize, history: usize) -> Value {
 }
 
 /// `Graphics::shader_status` as JSON.
-#[cfg(feature = "3d")]
 pub(crate) fn shader_status_json(gfx: &crate::gfx::Graphics) -> Value {
     use crate::render::ShaderKind;
     use crate::render::ShaderOutcome;
@@ -1450,6 +1453,7 @@ pub(crate) fn shader_status_json(gfx: &crate::gfx::Graphics) -> Value {
             let kind = match s.kind {
                 ShaderKind::Material => "material",
                 ShaderKind::Effect => "effect",
+                ShaderKind::Sprite => "sprite",
                 _ => "compute",
             };
             let outcome = match s.outcome {
@@ -1487,12 +1491,6 @@ pub(crate) fn shader_status_json(gfx: &crate::gfx::Graphics) -> Value {
         })
         .collect();
     json!({ "shaders": shaders })
-}
-
-/// Without the `3d` feature a game has no custom shaders.
-#[cfg(not(feature = "3d"))]
-fn shader_status_json(_gfx: &crate::gfx::Graphics) -> Value {
-    json!({ "shaders": [], "note": "built without the `3d` feature: no custom shaders" })
 }
 
 /// Most pairs `ecs.diagnostics` lists in `schedule.dependencies`: the
@@ -1805,8 +1803,14 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let at: [f32; 2] = serde_json::from_value(param(params, "at")?.clone())
                 .map_err(|e| format!("`at` must be [x, y]: {e}"))?;
             let e = ctx.spawn_prefab(path, glam::vec2(at[0], at[1]))?;
-            json!({ "entity": e.to_bits() })
+            let parts: Vec<u64> = ctx
+                .world
+                .get::<crate::scene::PrefabParts>(e)
+                .map(|p| p.0.iter().map(|p| p.to_bits()).collect())
+                .unwrap_or_default();
+            json!({ "entity": e.to_bits(), "parts": parts })
         }
+        "prefab.despawn" => json!(ctx.despawn_prefab(entity_param(params)?)),
         "prefab.save" => {
             let e = entity_param(params)?;
             let path = asset_path_param(params)?;
@@ -2616,6 +2620,35 @@ mod tests {
         }
         assert!(check_tool_path("shot.png", "json").is_err());
         assert_eq!(check_tool_path("shot.png", "png"), Ok(()));
+    }
+
+    #[test]
+    fn prefab_spawn_returns_the_parts_and_prefab_despawn_removes_them() {
+        let path = format!("ponko-test-control-tree-{}.json", std::process::id());
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(&path);
+        let mut ctx = ctx();
+        let root = ctx.world.spawn((Transform2D::default(),));
+        let arm = ctx.world.spawn((Transform2D::default(), crate::d2::Attached::to(root)));
+        let saved = handle(
+            &mut ctx,
+            "prefab.save",
+            &json!({ "entity": root.to_bits(), "path": path }),
+        );
+        ctx.world.despawn(root);
+        ctx.world.despawn(arm);
+        let spawned = saved.and_then(|_| handle(&mut ctx, "prefab.spawn", &json!({ "path": path, "at": [1.0, 2.0] })));
+        let _ = std::fs::remove_file(&file);
+        let spawned = spawned.unwrap();
+        let parts = spawned["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 1);
+        let part = Entity::from_bits(parts[0].as_u64().unwrap());
+        let new_root = Entity::from_bits(spawned["entity"].as_u64().unwrap());
+        assert_eq!(ctx.world.get::<crate::d2::Attached>(part).unwrap().to, new_root);
+        let gone = handle(&mut ctx, "prefab.despawn", &json!({ "entity": new_root.to_bits() })).unwrap();
+        assert_eq!(gone, 2);
+        assert_eq!(ctx.world.len(), 0);
     }
 
     #[test]

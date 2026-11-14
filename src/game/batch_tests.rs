@@ -33,6 +33,7 @@ fn bare() -> Game {
         .remove(Systems::ANIMATE_SPRITES)
         .remove(Systems::DRAW_TILEMAPS)
         .remove(Systems::DRAW_SPRITES)
+        .remove(Systems::DRAW_PARTICLES)
         .remove(Systems::UPDATE_ANIMATORS)
         .remove(Systems::UPDATE_PARTICLES)
         .remove(Systems::UPDATE_AUDIO3D)

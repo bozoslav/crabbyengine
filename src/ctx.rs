@@ -52,6 +52,7 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// | [`ui`](Self::ui) | [`Ui`](crate::ui::Ui): the retained widget tree and the immediate debug widgets. |
 /// | [`assets`](Self::assets) | [`Assets`](crate::assets::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
 /// | [`perf`](Self::perf) | [`Perf`](crate::perf::Perf): timings, the HUD, traces, profiling reports. |
+/// | [`storage`](Self::storage) | [`Storage`](crate::storage::Storage): the player's saves and settings, crash-safe, on the desktop and the web. |
 /// | [`camera`](Self::camera), `scene3d` | What the renderer reads when the frame is drawn: the 2D camera, and with `3d` the [`SceneSettings`](crate::render::SceneSettings) (camera, lighting, sky, post-processing, levels of detail, GPU passes, quality). |
 /// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, [`Networking`](crate::net::Networking): lockstep, messages, snapshots. |
 ///
@@ -86,7 +87,9 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 ///   drawing): `start_ragdoll`, `stop_ragdoll`, `draw_skeleton`;
 /// - reports that look across services: [`live_counts`](Self::live_counts),
 ///   `asset_inventory`, `ecs_diagnostics`, `capabilities_json` and
-///   [`control_addr`](Self::control_addr).
+///   [`control_addr`](Self::control_addr);
+/// - save slots (the world, the player's storage and the assets):
+///   [`load_world`](Self::load_world).
 ///
 /// Every other call is on its service: `ctx.input.mouse_down(..)`,
 /// `ctx.gfx.create_mesh(..)`, `ctx.audio.play_at(..)`.
@@ -314,6 +317,19 @@ pub struct Ctx {
     /// # }
     /// ```
     pub perf: crate::perf::Perf,
+    /// The player's own files (saves, settings) in the per-user data folder,
+    /// or the browser's storage on the web, with crash-safe writes. Needs an
+    /// app id ([`Game::app_id`](crate::game::Game::app_id)). See
+    /// [`Storage`](crate::storage::Storage).
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.storage.write("settings.json", br#"{"volume":0.5}"#).expect("saved");
+    /// ctx.storage.save_world(&ctx.world, "slot1").expect("saved");
+    /// # }
+    /// ```
+    pub storage: crate::storage::Storage,
 }
 
 impl Ctx {
@@ -326,6 +342,7 @@ impl Ctx {
         crate::reflect::WorldReflect::reflect::<crate::d2::Transform>(&mut world);
         crate::reflect::describe_transform2d(&mut world);
         crate::reflect::WorldReflect::reflect::<crate::d2::Attached>(&mut world);
+        crate::reflect::WorldReflect::reflect::<crate::scene::PrefabParts>(&mut world);
         #[cfg(feature = "3d")]
         crate::reflect::WorldReflect::reflect::<crate::d3::Transform>(&mut world);
         #[cfg(feature = "3d")]
@@ -337,8 +354,11 @@ impl Ctx {
             crate::reflect::WorldReflect::reflect::<crate::d3::Decal>(&mut world);
             crate::reflect::WorldReflect::reflect::<crate::render::ReceivesDecals>(&mut world);
             crate::reflect::WorldReflect::reflect::<crate::render::LodHysteresis>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::anim::SkinOf>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::anim::AttachToJoint>(&mut world);
         }
         crate::reflect::reflect_sprite(&mut world);
+        crate::reflect::reflect_particle_emitter2d(&mut world);
         // The file names behind sprites and models: the world saves by them,
         // the graphics service fills them in as files load.
         let gfx = crate::gfx::Graphics::new(
@@ -388,6 +408,7 @@ impl Ctx {
             ui_state: UiState::default(),
             ui: crate::ui::Ui::default(),
             perf: crate::perf::Perf::new(),
+            storage: crate::storage::Storage::default(),
         };
         #[cfg(feature = "3d")]
         ctx.sync_audio_camera();
@@ -684,33 +705,77 @@ impl Ctx {
 
     /// Queues every `(Transform2D, Sprite)` entity for drawing.
     pub(crate) fn draw_world_sprites(&mut self) {
-        /// Below this many sprites, one thread is faster than many.
-        const PARALLEL_MIN: usize = 20_000;
-        fn instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
-            let (size, uv) = region(s.texture, s.region);
-            SpriteInstance::new(
-                t.position.into(),
-                (size * t.scale).into(),
-                s.pivot.into(),
-                t.rotation,
-                s.color.to_rgba8(),
-            )
-            .with_uv(uv)
-        }
+        use crate::sprite_material::{BlendMode, SpriteMaterial};
+        use ponko_ecs::Without;
         let draw_list = &mut self.gfx.draw_list;
-        let mut query = self.world.query::<(&Transform2D, &Sprite)>();
+        // Plain sprites first, on the same path as before blend modes and
+        // materials existed; then the (usually few) sprites with either.
+        let mut query = self
+            .world
+            .query::<(&Transform2D, &Sprite)>()
+            .filter::<(Without<BlendMode>, Without<SpriteMaterial>)>();
         let n = query.count();
-        if n < PARALLEL_MIN {
-            query.for_each(|(t, s)| draw_list.push(s.texture.id, s.z, instance(t, s)));
+        if n < SPRITES_PARALLEL_MIN {
+            query.for_each(|(t, s)| draw_list.push(s.texture.id, s.z, sprite_instance(t, s)));
+        } else {
+            // SAFETY: `par_for_each_indexed` visits each of the query's `n`
+            // entities exactly once, with indices `0..n`.
+            unsafe {
+                draw_list.extend(n, |slots| {
+                    query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, sprite_instance(t, s)));
+                });
+            }
+        }
+        self.draw_styled_sprites();
+    }
+
+    /// The sprites with a [`BlendMode`](crate::d2::BlendMode) or a
+    /// [`SpriteMaterial`](crate::d2::SpriteMaterial); most frames have
+    /// none, so it stays out of line.
+    #[inline(never)]
+    fn draw_styled_sprites(&mut self) {
+        use crate::sprite_material::{BlendMode, SpriteMaterial, style_key};
+        use ponko_ecs::{Or, With};
+        let draw_list = &mut self.gfx.draw_list;
+        let mut styled = self
+            .world
+            .query::<(&Transform2D, &Sprite, Option<&BlendMode>, Option<&SpriteMaterial>)>()
+            .filter::<Or<(With<BlendMode>, With<SpriteMaterial>)>>();
+        let n = styled.count();
+        if n == 0 {
+            // Visiting an `Or` query checks every sprite even when none
+            // match; counting checks whole archetypes.
             return;
         }
-        // SAFETY: `par_for_each_indexed` visits each of the query's `n`
-        // entities exactly once, with indices `0..n`.
-        unsafe {
-            draw_list.extend(n, |slots| {
-                query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, instance(t, s)));
-            });
+        let style =
+            |b: Option<&BlendMode>, m: Option<&SpriteMaterial>| style_key(b.copied().unwrap_or_default(), m.copied());
+        if n < SPRITES_PARALLEL_MIN {
+            styled
+                .for_each(|(t, s, b, m)| draw_list.push_styled(s.texture.id, style(b, m), s.z, sprite_instance(t, s)));
+        } else {
+            // SAFETY: as in `draw_world_sprites`.
+            unsafe {
+                draw_list.extend(n, |slots| {
+                    styled.par_for_each_indexed(|i, (t, s, b, m)| {
+                        slots.write_styled(i, s.texture.id, style(b, m), s.z, sprite_instance(t, s));
+                    });
+                });
+            }
         }
+    }
+
+    /// One frame of the built-in sprite drawing without a GPU, for
+    /// `ponko_bench`: collects every `Sprite` entity as `draw_sprites` does,
+    /// orders and batches them as the renderer does, and forgets them.
+    /// Returns the sprites and batches. Unstable (`bench-internals`).
+    #[doc(hidden)]
+    #[cfg(feature = "bench-internals")]
+    pub fn bench_sprite_frame(&mut self) -> (usize, usize) {
+        self.draw_world_sprites();
+        let (sprites, batches) = self.gfx.draw_list.finish();
+        let counts = (sprites.len(), batches.len());
+        self.gfx.draw_list.clear();
+        counts
     }
 
     // ---------------------------------------------------------------- drawing
@@ -720,6 +785,7 @@ impl Ctx {
     pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), crate::error::Error> {
         let mut names = Vec::new();
         crate::reflect::asset_names(json, "Sprite", "texture", &mut names);
+        crate::reflect::asset_names(json, "ParticleEmitter2D", "texture", &mut names);
         for name in names.drain(..) {
             self.gfx.try_load_texture(&name)?;
         }
@@ -768,6 +834,17 @@ impl Ctx {
                 Asset::Data(i) => {
                     let applied = assets::read_to_string(&file)
                         .and_then(|text| (self.assets.data_loaders[i])(&mut self.world, &text).map_err(String::from));
+                    self.assets.report_reload(name, applied);
+                    continue;
+                }
+                Asset::SpriteShader(id) => {
+                    let applied =
+                        assets::read_to_string(&file).and_then(|text| self.gfx.reload_sprite_shader(id, &name, &text));
+                    self.assets.report_reload(name, applied);
+                    continue;
+                }
+                Asset::Level => {
+                    let applied = self.reload_level(&name);
                     self.assets.report_reload(name, applied);
                     continue;
                 }
@@ -1164,6 +1241,23 @@ fn fitted(shot: &Screenshot, max_size: u32) -> Result<image::RgbaImage, String> 
         image
     };
     Ok(image)
+}
+
+/// Below this many sprites, one thread is faster than many.
+const SPRITES_PARALLEL_MIN: usize = 20_000;
+
+/// What the renderer draws for a sprite entity.
+#[inline]
+fn sprite_instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
+    let (size, uv) = region(s.texture, s.region);
+    SpriteInstance::new(
+        t.position.into(),
+        (size * t.scale).into(),
+        s.pivot.into(),
+        t.rotation,
+        s.color.to_rgba8(),
+    )
+    .with_uv(uv)
 }
 
 /// The drawn size (texture pixels) and UV of `region` of `texture`.

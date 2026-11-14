@@ -156,6 +156,10 @@ pub struct Graphics {
     #[cfg(feature = "3d")]
     pub(crate) material_names: crate::reflect::MaterialNames,
     pub(crate) renderer: Option<Renderer>,
+    /// Sprite shaders and materials.
+    pub(crate) sprites: crate::sprite_material::SpriteAssets,
+    /// The latest compile of each of the game's shaders (`Graphics::shader_status`).
+    pub(crate) shader_statuses: Vec<crate::render::ShaderStatus>,
     pub(crate) screenshots: Vec<ScreenshotRequest>,
     pub(crate) draw_list: DrawList,
     pub(crate) ui_list: DrawList,
@@ -204,6 +208,8 @@ impl Graphics {
             #[cfg(feature = "3d")]
             material_names,
             renderer: None,
+            sprites: Default::default(),
+            shader_statuses: Vec::new(),
             screenshots: Vec::new(),
             draw_list: DrawList::default(),
             ui_list: DrawList::default(),
@@ -260,6 +266,7 @@ impl Graphics {
             Vec2::splat(0.5),
             [255; 4],
             None,
+            0,
         );
     }
 
@@ -290,6 +297,7 @@ impl Graphics {
             params.pivot,
             params.color.to_rgba8(),
             params.region,
+            crate::sprite_material::style_key(params.blend, params.material),
         );
     }
 
@@ -466,14 +474,20 @@ impl Graphics {
         Ok(font)
     }
 
-    /// Loads an image from the `assets/` folder (PNG for now).
+    /// Loads an image from the `assets/` folder: PNG, and JPEG with the
+    /// default `image-jpeg` feature. WebP, BMP, TGA, GIF, TIFF, ICO, QOI,
+    /// PNM, DDS, HDR and EXR each have an opt-in `image-*` cargo feature
+    /// (`image-formats` turns them all on), none of which needs `3d`. The
+    /// format is found from the file's first bytes, not its extension (TGA,
+    /// which has none, from the extension).
     ///
     /// Do this once in setup and keep the [`Texture`]; it's a cheap handle.
     /// Loading the same file again returns the same texture (use
     /// [`create_texture`](Self::create_texture) for a copy of your own).
     ///
     /// # Panics
-    /// With a clear message if the file is missing or isn't a valid image.
+    /// With a clear message if the file is missing, isn't a valid image, or is
+    /// in a format the build doesn't read (the message names the feature to turn on).
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -489,9 +503,11 @@ impl Graphics {
     /// [`load_texture`](Self::load_texture) with errors as values, for
     /// optional assets: [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound)
     /// if no source has it, [`Io`](crate::error::ErrorKind::Io) if it can't be
-    /// read, [`Decode`](crate::error::ErrorKind::Decode) if it isn't an image.
-    /// Like `load_texture`, it also names the texture, so sprites showing it
-    /// can be saved.
+    /// read, [`Decode`](crate::error::ErrorKind::Decode) if it isn't an image,
+    /// [`Unsupported`](crate::error::ErrorKind::Unsupported) if it is an image in
+    /// a format this build leaves out (the message names the `image-*`
+    /// feature to enable). Like `load_texture`, it also names the texture, so
+    /// sprites showing it can be saved.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -511,9 +527,7 @@ impl Graphics {
                 // Acquire, decode (CPU only), then create on the GPU (game thread).
                 let origin = found.origin.clone();
                 let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
-                let image = assets::decode_image(&bytes).map_err(|e| {
-                    crate::error::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
-                })?;
+                let image = assets::decode_image(&bytes, path, &origin.describe(path))?;
                 let texture = self.create_texture(image.width, image.height, &image.rgba);
                 self.asset_ledger
                     .own(crate::inventory::AssetClass::Texture, texture.id, path);
@@ -768,7 +782,7 @@ impl Graphics {
         self.font_atlas = Some(crate::texture::Texture::new(1, Text::ATLAS_SIZE, Text::ATLAS_SIZE));
     }
 
-    fn white_texture(&mut self) -> crate::texture::Texture {
+    pub(crate) fn white_texture(&mut self) -> crate::texture::Texture {
         if let Some(t) = self.white {
             return t;
         }
@@ -891,10 +905,12 @@ fn push_sprite(
     pivot: Vec2,
     color: [u8; 4],
     region_px: Option<Rect>,
+    style: u32,
 ) {
     let (size, uv) = region(texture, region_px);
-    draw_list.push(
+    draw_list.push_styled(
         texture.id,
+        style,
         z,
         SpriteInstance::new(pos.into(), (size * scale).into(), pivot.into(), rotation, color).with_uv(uv),
     );

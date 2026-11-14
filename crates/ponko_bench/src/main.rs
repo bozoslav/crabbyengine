@@ -18,6 +18,7 @@ mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
 mod par_archetypes;
+mod particles2d;
 mod physics;
 mod physics3d;
 mod query_cache;
@@ -32,7 +33,9 @@ mod render_scenes;
 mod report;
 mod schedule;
 mod sparse_set;
+mod sprites;
 mod streaming;
+mod tilemap;
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -230,7 +233,10 @@ fn main() {
     let render: Option<String> = None;
     schedule::run(&mut b);
     streaming::run(&mut b);
+    tilemap::run(&mut b);
     sparse_set::run(&mut b);
+    sprites::run(&mut b);
+    particles2d::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
     for scoped in [false, true] {
@@ -1348,6 +1354,36 @@ fn flow_benches(b: &mut Bench) {
                     black_box(total);
                 })
                 .run_headless(10, |_| {});
+            black_box(world);
+        },
+    );
+    // ---- the headless loop itself: 10k ticks of a game that does nothing --------
+    b.steady(
+        "headless/sim-only-10k-ticks",
+        20,
+        || (),
+        |_| {
+            let world = ponko::prelude::Game::new("bench", 1, 1)
+                .sim_system(|ctx| {
+                    black_box(ctx.time.sim_tick());
+                })
+                .run_headless(10_000, |_| {});
+            black_box(world);
+        },
+    );
+    // The same with frames (`headless_frames`): the UI and the frame systems
+    // run too, so this is what a menu test pays per frame.
+    b.steady(
+        "headless/frames-10k-ticks",
+        20,
+        || (),
+        |_| {
+            let world = ponko::prelude::Game::new("bench", 1, 1)
+                .headless_frames(true)
+                .sim_system(|ctx| {
+                    black_box(ctx.time.sim_tick());
+                })
+                .run_headless(10_000, |_| {});
             black_box(world);
         },
     );

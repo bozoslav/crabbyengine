@@ -104,9 +104,29 @@
 
 #define PONKO_SYSTEM_UPDATE_AUDIO3D 12
 
+#define PONKO_SYSTEM_DRAW_PARTICLES 13
+
 #define PONKO_HANDLE_NONE UINT32_MAX
 
 #define PONKO_MAX_GAMEPADS 8
+
+#define PONKO_LEVEL_SHAPE_RECT 0
+
+#define PONKO_LEVEL_SHAPE_ELLIPSE 1
+
+#define PONKO_LEVEL_SHAPE_POINT 2
+
+#define PONKO_LEVEL_SHAPE_POLYGON 3
+
+#define PONKO_LEVEL_SHAPE_POLYLINE 4
+
+#define PONKO_TILE_FLIP_X 1
+
+#define PONKO_TILE_FLIP_Y 2
+
+#define PONKO_TILE_FLIP_DIAGONAL 4
+
+#define PONKO_PRESS_THRESHOLD 0.5
 
 #define PONKO_QUERY_CACHE_AUTO 0
 
@@ -120,6 +140,8 @@
 
 #define PONKO_SHADER_COMPUTE 2
 
+#define PONKO_SHADER_SPRITE 3
+
 #define PONKO_SHADER_COMPILED 0
 
 #define PONKO_SHADER_RELOADED 1
@@ -127,6 +149,14 @@
 #define PONKO_SHADER_FAILED 2
 
 #define PONKO_SHADER_RELOAD_FAILED 3
+
+#define PONKO_BLEND_ALPHA 0
+
+#define PONKO_BLEND_ADDITIVE 1
+
+#define PONKO_BLEND_MULTIPLY 2
+
+#define PONKO_BLEND_PREMULTIPLIED 3
 
 #define PONKO_MESH_NONE UINT32_MAX
 
@@ -297,6 +327,8 @@ typedef enum PonkoHandleKind {
   PONKO_HANDLE_GPU_BUFFER = 8,
   PONKO_HANDLE_INSTANCE_BATCH = 9,
   PONKO_HANDLE_TEXTURE_ARRAY = 10,
+  PONKO_HANDLE_SPRITE_SHADER = 11,
+  PONKO_HANDLE_SPRITE_MATERIAL = 12,
 } PonkoHandleKind;
 
 typedef enum PonkoAssetClass {
@@ -573,6 +605,13 @@ typedef enum PonkoParticleSpace3D {
   PONKO_PARTICLES_WORLD,
   PONKO_PARTICLES_LOCAL,
 } PonkoParticleSpace3D;
+
+typedef enum PonkoParticleShape2D {
+  PONKO_PARTICLES2D_POINT,
+  PONKO_PARTICLES2D_CIRCLE,
+  PONKO_PARTICLES2D_CONE,
+  PONKO_PARTICLES2D_RECT,
+} PonkoParticleShape2D;
 
 typedef enum PonkoLayerBlend {
   PONKO_LAYER_OVERRIDE,
@@ -1009,6 +1048,30 @@ typedef struct PonkoAssetRecord {
   uint64_t age_frames;
 } PonkoAssetRecord;
 
+typedef struct PonkoLevelOptions {
+  const char *const *prefab_classes;
+  const char *const *prefab_paths;
+  size_t prefab_count;
+  const char *const *solid;
+  size_t solid_count;
+  const char *level;
+  bool no_colliders;
+  float z;
+} PonkoLevelOptions;
+
+typedef struct PonkoLevelObject {
+  uint64_t id;
+  struct PonkoVec2 position;
+  struct PonkoVec2 size;
+  float rotation;
+  uint32_t shape;
+  bool has_tile;
+  uint32_t tileset;
+  uint32_t tile;
+  uint32_t flip;
+  bool visible;
+} PonkoLevelObject;
+
 typedef struct PonkoFont {
   uint32_t id;
 } PonkoFont;
@@ -1108,6 +1171,43 @@ typedef struct PonkoParticleSettings3D {
   uint32_t space;
   uint64_t seed;
 } PonkoParticleSettings3D;
+
+typedef struct PonkoSpriteMaterial {
+  uint32_t id;
+} PonkoSpriteMaterial;
+
+typedef struct PonkoParticleSettings2D {
+  float rate;
+  uint32_t burst;
+  float duration;
+  bool looping;
+  float lifetime_min;
+  float lifetime_max;
+  float speed_min;
+  float speed_max;
+  uint32_t shape;
+  struct PonkoVec2 shape_size;
+  struct PonkoVec2 gravity;
+  float drag;
+  float size_min;
+  float size_max;
+  float rotation_min;
+  float rotation_max;
+  const struct PonkoParticleKey *size_keys;
+  size_t size_key_count;
+  const struct PonkoParticleColorKey *color_keys;
+  size_t color_key_count;
+  bool has_texture;
+  struct PonkoTexture texture;
+  uint32_t sheet_columns;
+  uint32_t sheet_rows;
+  uint32_t blend;
+  struct PonkoSpriteMaterial material;
+  float z;
+  uint32_t max_particles;
+  uint32_t space;
+  uint64_t seed;
+} PonkoParticleSettings2D;
 
 typedef struct PonkoFrameStats {
   uint64_t frames;
@@ -1427,6 +1527,18 @@ typedef struct PonkoJoint {
 typedef struct PonkoMaterial {
   uint32_t id;
 } PonkoMaterial;
+
+typedef struct PonkoSpriteShader {
+  uint32_t id;
+} PonkoSpriteShader;
+
+typedef struct PonkoSpriteMaterialDesc {
+  bool has_shader;
+  struct PonkoSpriteShader shader;
+  float params[16];
+  bool has_textures[2];
+  struct PonkoTexture textures[2];
+} PonkoSpriteMaterialDesc;
 
 typedef struct PonkoCell {
   int32_t x;
@@ -2904,6 +3016,130 @@ enum PonkoStatus ponko_ctx_asset_owner(struct PonkoCtx *ctx,
 
 enum PonkoStatus ponko_ctx_unload_mesh(struct PonkoCtx *ctx, const char *path, bool *out_unloaded);
 
+enum PonkoStatus ponko_game_headless_frames(struct PonkoGame *game, bool on);
+
+enum PonkoStatus ponko_input_scenario_click(struct PonkoInputScenario *scenario,
+                                            uint64_t tick,
+                                            const char *node);
+
+enum PonkoStatus ponko_input_scenario_type_text(struct PonkoInputScenario *scenario,
+                                                uint64_t tick,
+                                                const char *node,
+                                                const char *typed);
+
+enum PonkoStatus ponko_input_scenario_expect_ui(struct PonkoInputScenario *scenario,
+                                                uint64_t tick,
+                                                const char *node,
+                                                int32_t exists,
+                                                int32_t shown,
+                                                int32_t focused,
+                                                const char *expected_text);
+
+enum PonkoStatus ponko_ctx_ui_is_shown(struct PonkoCtx *ctx,
+                                       uint64_t target,
+                                       uint64_t id,
+                                       bool *out_shown);
+
+enum PonkoStatus ponko_ctx_spawn_level(struct PonkoCtx *ctx,
+                                       const char *path,
+                                       struct PonkoVec2 at,
+                                       const struct PonkoLevelOptions *options,
+                                       uint64_t *out_root);
+
+enum PonkoStatus ponko_ctx_despawn_level(struct PonkoCtx *ctx, uint64_t root);
+
+enum PonkoStatus ponko_level_entities(struct PonkoWorld *world,
+                                      uint64_t root,
+                                      uint64_t *out_entities,
+                                      size_t capacity,
+                                      size_t *out_len);
+
+enum PonkoStatus ponko_level_object_get(struct PonkoWorld *world,
+                                        uint64_t entity,
+                                        struct PonkoLevelObject *out_object);
+
+enum PonkoStatus ponko_level_object_name(struct PonkoWorld *world,
+                                         uint64_t entity,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum PonkoStatus ponko_level_object_class(struct PonkoWorld *world,
+                                          uint64_t entity,
+                                          char *buffer,
+                                          size_t capacity,
+                                          size_t *out_len);
+
+enum PonkoStatus ponko_level_object_layer(struct PonkoWorld *world,
+                                          uint64_t entity,
+                                          char *buffer,
+                                          size_t capacity,
+                                          size_t *out_len);
+
+enum PonkoStatus ponko_level_property_json(struct PonkoWorld *world,
+                                           uint64_t entity,
+                                           const char *name,
+                                           char *buffer,
+                                           size_t capacity,
+                                           size_t *out_len);
+
+enum PonkoStatus ponko_tilemap_set_parallax(struct PonkoWorld *world,
+                                            uint64_t entity,
+                                            struct PonkoVec2 parallax,
+                                            struct PonkoVec2 origin);
+
+enum PonkoStatus ponko_tilemap_animate(struct PonkoWorld *world,
+                                       uint64_t entity,
+                                       uint16_t tile,
+                                       const uint16_t *frames,
+                                       const float *seconds,
+                                       size_t count);
+
+enum PonkoStatus ponko_tilemap_set_flipped(struct PonkoWorld *world,
+                                           uint64_t entity,
+                                           uint32_t x,
+                                           uint32_t y,
+                                           uint16_t frame,
+                                           uint8_t flip);
+
+enum PonkoStatus ponko_tilemap_flip(struct PonkoWorld *world,
+                                    uint64_t entity,
+                                    uint32_t x,
+                                    uint32_t y,
+                                    uint8_t *out_flip);
+
+enum PonkoStatus ponko_tilemap_autotile(struct PonkoWorld *world,
+                                        uint64_t entity,
+                                        uint32_t neighbours,
+                                        const uint16_t *frames,
+                                        size_t frames_len,
+                                        bool outside_filled,
+                                        const bool *filled);
+
+enum PonkoStatus ponko_tilemap_paint_autotile(struct PonkoWorld *world,
+                                              uint64_t entity,
+                                              uint32_t neighbours,
+                                              const uint16_t *frames,
+                                              size_t frames_len,
+                                              bool outside_filled,
+                                              uint32_t x,
+                                              uint32_t y,
+                                              bool on);
+
+enum PonkoStatus ponko_tilemap_solid_rects(struct PonkoWorld *world,
+                                           uint64_t entity,
+                                           const uint16_t *solid_tiles,
+                                           size_t count,
+                                           struct PonkoRect *out_rects,
+                                           size_t capacity,
+                                           size_t *out_len);
+
+enum PonkoStatus ponko_tilemap_spawn_colliders(struct PonkoWorld *world,
+                                               uint64_t entity,
+                                               const uint16_t *solid_tiles,
+                                               size_t count,
+                                               size_t *out_count);
+
 enum PonkoStatus ponko_ctx_try_load_texture(struct PonkoCtx *ctx,
                                             const char *path,
                                             struct PonkoTexture *out_texture);
@@ -3207,6 +3443,24 @@ enum PonkoStatus ponko_ctx_particle_live_count(struct PonkoCtx *ctx,
 
 enum PonkoStatus ponko_ctx_remove_particle_emitter3d(struct PonkoCtx *ctx, uint64_t entity_bits);
 
+struct PonkoParticleSettings2D ponko_particle_settings2d_default(void);
+
+enum PonkoStatus ponko_ctx_set_particle_emitter2d(struct PonkoCtx *ctx,
+                                                  uint64_t entity_bits,
+                                                  const struct PonkoParticleSettings2D *settings);
+
+enum PonkoStatus ponko_ctx_particle_burst2d(struct PonkoCtx *ctx,
+                                            uint64_t entity_bits,
+                                            uint32_t count);
+
+enum PonkoStatus ponko_ctx_particle_live_count2d(struct PonkoCtx *ctx,
+                                                 uint64_t entity_bits,
+                                                 uint32_t *out_count);
+
+enum PonkoStatus ponko_ctx_particle_update2d(struct PonkoCtx *ctx, uint64_t entity_bits, float dt);
+
+enum PonkoStatus ponko_ctx_remove_particle_emitter2d(struct PonkoCtx *ctx, uint64_t entity_bits);
+
 enum PonkoStatus ponko_ctx_frame_stats(const struct PonkoCtx *ctx,
                                        struct PonkoFrameStats *out_stats);
 
@@ -3480,6 +3734,20 @@ enum PonkoStatus ponko_ctx_physics3d_stream_colliders(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_ctx_physics3d_is_collider_active(struct PonkoCtx *ctx,
                                                         uint64_t entity,
                                                         bool *out_active);
+
+enum PonkoStatus ponko_ctx_prefab_parts(struct PonkoCtx *ctx,
+                                        uint64_t root,
+                                        uint64_t *out_entities,
+                                        size_t capacity,
+                                        size_t *out_count);
+
+enum PonkoStatus ponko_ctx_despawn_prefab(struct PonkoCtx *ctx, uint64_t root, size_t *out_count);
+
+enum PonkoStatus ponko_ctx_pressed_this_frame(struct PonkoCtx *ctx,
+                                              float axis_threshold,
+                                              struct PonkoActionBinding *out,
+                                              size_t capacity,
+                                              size_t *out_count);
 
 struct PonkoQueryCachePolicy ponko_query_cache_policy_default(void);
 
@@ -3921,6 +4189,41 @@ enum PonkoStatus ponko_ctx_draw_skeleton(struct PonkoCtx *ctx,
                                          uint64_t entity_bits,
                                          struct PonkoColor color);
 
+struct PonkoSpriteMaterialDesc ponko_sprite_material_desc_default(void);
+
+enum PonkoStatus ponko_ctx_load_sprite_shader(struct PonkoCtx *ctx,
+                                              const char *path,
+                                              struct PonkoSpriteShader *out_shader);
+
+enum PonkoStatus ponko_ctx_create_sprite_shader(struct PonkoCtx *ctx,
+                                                const char *name,
+                                                const char *source,
+                                                struct PonkoSpriteShader *out_shader);
+
+enum PonkoStatus ponko_ctx_create_sprite_material(struct PonkoCtx *ctx,
+                                                  const struct PonkoSpriteMaterialDesc *desc,
+                                                  struct PonkoSpriteMaterial *out_material);
+
+enum PonkoStatus ponko_ctx_update_sprite_material(struct PonkoCtx *ctx,
+                                                  struct PonkoSpriteMaterial material,
+                                                  const struct PonkoSpriteMaterialDesc *desc);
+
+enum PonkoStatus ponko_ctx_sprite_material_desc(struct PonkoCtx *ctx,
+                                                struct PonkoSpriteMaterial material,
+                                                struct PonkoSpriteMaterialDesc *out_desc,
+                                                bool *out_found);
+
+enum PonkoStatus ponko_ctx_draw_styled(struct PonkoCtx *ctx,
+                                       struct PonkoTexture texture,
+                                       struct PonkoVec2 pos,
+                                       const struct PonkoDrawParams *params,
+                                       uint32_t blend,
+                                       struct PonkoSpriteMaterial material);
+
+enum PonkoStatus ponko_blend_mode_component(struct PonkoWorld *world, uint32_t *out_id);
+
+enum PonkoStatus ponko_sprite_material_component(struct PonkoWorld *world, uint32_t *out_id);
+
 enum PonkoStatus ponko_game_lockstep_steam_host(struct PonkoGame *game,
                                                 uint32_t app_id,
                                                 uint32_t players,
@@ -3994,6 +4297,45 @@ enum PonkoStatus ponko_net_messages_steam_lobby_members(struct PonkoNetMessages 
                                                         uint64_t *members,
                                                         size_t capacity,
                                                         size_t *needed);
+
+enum PonkoStatus ponko_game_app_id(struct PonkoGame *game, const char *app_id);
+
+enum PonkoStatus ponko_game_data_dir(struct PonkoGame *game, const char *dir);
+
+enum PonkoStatus ponko_ctx_storage_write(struct PonkoCtx *ctx,
+                                         const char *name,
+                                         const uint8_t *bytes,
+                                         size_t len);
+
+enum PonkoStatus ponko_ctx_storage_read(struct PonkoCtx *ctx,
+                                        const char *name,
+                                        uint8_t *buffer,
+                                        size_t capacity,
+                                        size_t *out_len);
+
+enum PonkoStatus ponko_ctx_storage_read_backup(struct PonkoCtx *ctx,
+                                               const char *name,
+                                               uint8_t *buffer,
+                                               size_t capacity,
+                                               size_t *out_len);
+
+enum PonkoStatus ponko_ctx_storage_exists(struct PonkoCtx *ctx, const char *name, bool *out_exists);
+
+enum PonkoStatus ponko_ctx_storage_list(struct PonkoCtx *ctx,
+                                        char *buffer,
+                                        size_t capacity,
+                                        size_t *out_len);
+
+enum PonkoStatus ponko_ctx_storage_delete(struct PonkoCtx *ctx, const char *name);
+
+enum PonkoStatus ponko_ctx_storage_dir(struct PonkoCtx *ctx,
+                                       char *buffer,
+                                       size_t capacity,
+                                       size_t *out_len);
+
+enum PonkoStatus ponko_ctx_save_world(struct PonkoCtx *ctx, const char *slot);
+
+enum PonkoStatus ponko_ctx_load_world(struct PonkoCtx *ctx, const char *slot);
 
 struct PonkoCellStreamer *ponko_cells_new(float cell_size, float load_radius, float keep_radius);
 

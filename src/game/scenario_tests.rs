@@ -46,6 +46,7 @@ fn game_without_scenario() -> (Game, Ctx) {
         .remove(Systems::ANIMATE_SPRITES)
         .remove(Systems::DRAW_TILEMAPS)
         .remove(Systems::DRAW_SPRITES)
+        .remove(Systems::DRAW_PARTICLES)
         .sim_system(|ctx: &mut Ctx| {
             let s = Seen {
                 tick: ctx.time.sim_tick(),

@@ -31,6 +31,19 @@ pub(super) const FEATURES: &[(&str, bool)] = &[
     ("navmesh", cfg!(feature = "navmesh")),
     ("accessibility", cfg!(feature = "accessibility")),
     ("bench-internals", cfg!(feature = "bench-internals")),
+    ("image-jpeg", cfg!(feature = "image-jpeg")),
+    ("image-webp", cfg!(feature = "image-webp")),
+    ("image-bmp", cfg!(feature = "image-bmp")),
+    ("image-tga", cfg!(feature = "image-tga")),
+    ("image-gif", cfg!(feature = "image-gif")),
+    ("image-tiff", cfg!(feature = "image-tiff")),
+    ("image-ico", cfg!(feature = "image-ico")),
+    ("image-qoi", cfg!(feature = "image-qoi")),
+    ("image-pnm", cfg!(feature = "image-pnm")),
+    ("image-dds", cfg!(feature = "image-dds")),
+    ("image-hdr", cfg!(feature = "image-hdr")),
+    ("image-exr", cfg!(feature = "image-exr")),
+    ("image-formats", cfg!(feature = "image-formats")),
 ];
 
 /// Why `method` would be refused by this instance right now, if it would.

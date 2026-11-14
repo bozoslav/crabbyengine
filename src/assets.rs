@@ -634,12 +634,67 @@ pub(crate) struct Image {
 /// Reads and decodes the image at `path`; `name` is for messages.
 pub(crate) fn load_image_at(path: &Path, name: &str) -> Result<Image, String> {
     let bytes = read(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    decode_image(&bytes).map_err(|e| format!("\"{name}\" is not a valid image: {e}"))
+    decode_image(&bytes, name, &format!("\"{name}\"")).map_err(|e| e.message().to_string())
 }
 
-pub(crate) fn decode_image(bytes: &[u8]) -> Result<Image, String> {
-    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
-    let rgba = img.into_rgba8();
+/// The ponko cargo feature that turns on reading `format`, and its name for
+/// people; `None` for a format the engine never reads (PNG is always built in).
+fn image_feature(format: image::ImageFormat) -> Option<(&'static str, &'static str)> {
+    use image::ImageFormat as F;
+    Some(match format {
+        F::Jpeg => ("image-jpeg", "JPEG"),
+        F::WebP => ("image-webp", "WebP"),
+        F::Bmp => ("image-bmp", "BMP"),
+        F::Tga => ("image-tga", "TGA"),
+        F::Gif => ("image-gif", "GIF"),
+        F::Tiff => ("image-tiff", "TIFF"),
+        F::Ico => ("image-ico", "ICO"),
+        F::Qoi => ("image-qoi", "QOI"),
+        F::Pnm => ("image-pnm", "PNM"),
+        F::Dds => ("image-dds", "DDS"),
+        F::Hdr => ("image-hdr", "Radiance HDR"),
+        F::OpenExr => ("image-exr", "OpenEXR"),
+        _ => return None,
+    })
+}
+
+/// The error for a file in `format` when the build can't read it. `by_magic`
+/// says how the format was found (the file's first bytes, or its extension).
+fn format_unavailable(format: image::ImageFormat, what: &str, path: &str, by_magic: bool) -> crate::error::Error {
+    let found = if by_magic { "is" } else { "has the extension of" };
+    let message = match image_feature(format) {
+        Some((feature, name)) => format!(
+            "{what} {found} a {name} image, but this build of ponko doesn't read {name}: \
+             turn on its `{feature}` cargo feature (or `image-formats` for all of them)"
+        ),
+        None => format!(
+            "{what} {found} a {format:?} image, which ponko can't read: \
+             use PNG or JPEG, or any other format listed under the `image-formats` cargo feature"
+        ),
+    };
+    crate::error::Error::new(crate::error::ErrorKind::Unsupported, message).with_path(path)
+}
+
+/// Decodes an image file's bytes into RGBA8. The format comes from the first
+/// bytes, so a mislabelled extension doesn't matter; the extension of `path`
+/// is only used for formats with no recognizable start (TGA). `what` names the
+/// file for messages. A format the build leaves out fails with
+/// [`ErrorKind::Unsupported`](crate::error::ErrorKind::Unsupported), naming the
+/// cargo feature to enable; bytes that aren't a readable image with
+/// [`ErrorKind::Decode`](crate::error::ErrorKind::Decode).
+pub(crate) fn decode_image(bytes: &[u8], path: &str, what: &str) -> Result<Image, crate::error::Error> {
+    let by_magic = image::guess_format(bytes).ok();
+    let format = by_magic.or_else(|| image::ImageFormat::from_path(path).ok());
+    if let Some(format) = format.filter(|f| !f.reading_enabled()) {
+        return Err(format_unavailable(format, what, path, by_magic.is_some()));
+    }
+    let decoded = match format {
+        Some(format) => image::load_from_memory_with_format(bytes, format),
+        None => image::load_from_memory(bytes),
+    };
+    let rgba = decoded
+        .map_err(|e| crate::error::Error::decode(path, format!("{what} is not a valid image: {e}")))?
+        .into_rgba8();
     Ok(Image {
         width: rgba.width(),
         height: rgba.height(),
@@ -685,7 +740,7 @@ pub struct Assets {
     /// How to apply each loaded data file's text (`load_resource`).
     pub(crate) data_loaders: Vec<DataLoader>,
     /// Parsed prefab files, by name (`Ctx::spawn_prefab`).
-    pub(crate) prefabs: HashMap<String, Value>,
+    pub(crate) prefabs: HashMap<String, std::rc::Rc<crate::scene::PrefabFile>>,
     /// Fields of reflected components that name assets, and how to load
     /// them before a scene or prefab is spawned (`scene_asset_field`).
     pub(crate) scene_asset_fields: Vec<crate::scene::SceneAssetField>,
@@ -993,6 +1048,14 @@ impl Assets {
     /// `assets/<path>`, for [`spawn_prefab`](crate::ctx::Ctx::spawn_prefab). Its
     /// position isn't kept: each spawn says where. Not in web builds.
     ///
+    /// The prefab holds `e`'s children too: its [`PrefabParts`](crate::prelude::PrefabParts)
+    /// (if a prefab spawned it) and every entity attached to one of them,
+    /// by [`Attached`](crate::d2::Attached), a skin or joint attachment, or a 3D
+    /// joint between two of them. Their transforms are saved relative to
+    /// `e`'s, and their references to each other are kept. Included prefabs
+    /// are saved as their entities, not as a link to their file. An entity
+    /// with no children is saved as a version-1 file, as before.
+    ///
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, palm: Entity) {
@@ -1010,10 +1073,43 @@ impl Assets {
         if let Some(t) = components.get_mut("Transform2D") {
             t["position"] = json!([0.0, 0.0]);
         }
-        let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
+        // Spawning gives the root its parts again.
+        if let Value::Object(map) = &mut components {
+            map.remove("PrefabParts");
+        }
+        let members = crate::scene::prefab_members(world, e);
+        if members.len() == 1 {
+            let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
+            let text = serde_json::to_string_pretty(&prefab)?;
+            write_asset(path, text.as_bytes())?;
+            if let Value::Object(components) = components {
+                let file = crate::scene::PrefabFile::single(components);
+                self.prefabs.insert(path.to_string(), std::rc::Rc::new(file));
+            }
+            return Ok(());
+        }
+        let mut entities = Vec::with_capacity(members.len());
+        for &m in &members {
+            let mut json = if m == e {
+                components.clone()
+            } else {
+                world.entity_json(m)?
+            };
+            if m != e {
+                crate::scene::relative_to(world, m, e, &mut json);
+            }
+            // Spawning gives the root its parts again.
+            if let Value::Object(map) = &mut json {
+                map.remove("PrefabParts");
+            }
+            entities.push(json!({ "entity": m.to_bits(), "components": json }));
+        }
+        let prefab =
+            json!({ "format": PREFAB_FORMAT, "version": crate::scene::PREFAB_TREE_VERSION, "entities": entities });
         let text = serde_json::to_string_pretty(&prefab)?;
         write_asset(path, text.as_bytes())?;
-        self.prefabs.insert(path.to_string(), components);
+        // Read back from the file's JSON next time, like any prefab.
+        self.prefabs.remove(path);
         Ok(())
     }
 
@@ -1135,7 +1231,45 @@ mod tests {
 
     #[test]
     fn garbage_bytes_are_rejected() {
-        assert!(decode_image(b"not a png").is_err());
+        assert!(decode_image(b"not a png", "a.png", "\"a.png\"").is_err());
+    }
+
+    #[test]
+    fn decodes_a_jpeg_to_rgba() {
+        if !image::ImageFormat::Jpeg.reading_enabled() {
+            return;
+        }
+        let jpeg = include_bytes!("../tests/fixtures/images/red-blue.jpg");
+        let img = decode_image(jpeg, "bg.jpg", "\"bg.jpg\"").unwrap();
+        assert_eq!((img.width, img.height), (16, 8));
+        let px = |x: usize| &img.rgba[(3 * 16 + x) * 4..][..4];
+        let (left, right) = (px(2), px(13));
+        assert!(left[0] > 200 && left[1] < 60 && left[2] < 60, "left is red: {left:?}");
+        assert!(
+            right[2] > 200 && right[0] < 60 && right[1] < 60,
+            "right is blue: {right:?}"
+        );
+        assert_eq!(left[3], 255);
+    }
+
+    #[test]
+    fn a_compiled_out_format_is_found_from_its_magic_bytes() {
+        // Never decoded: the check comes first. Skip when the build has WebP.
+        if image::ImageFormat::WebP.reading_enabled() {
+            return;
+        }
+        let webp = b"RIFF\x0c\0\0\0WEBPVP8 \0\0\0\0";
+        let err = decode_image(webp, "x.png", "\"x.png\"").err().unwrap();
+        assert_eq!(err.kind(), crate::error::ErrorKind::Unsupported);
+        assert!(err.message().contains("`image-webp`"), "{}", err.message());
+        assert!(err.message().contains("is a WebP image"), "{}", err.message());
+    }
+
+    #[test]
+    fn a_format_the_engine_never_reads_says_so() {
+        let err = format_unavailable(image::ImageFormat::Avif, "\"a.avif\"", "a.avif", false);
+        assert_eq!(err.kind(), crate::error::ErrorKind::Unsupported);
+        assert!(err.message().contains("can't read"), "{}", err.message());
     }
 
     #[test]
@@ -1146,7 +1280,7 @@ mod tests {
             .unwrap()
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        let img = decode_image(&png).unwrap();
+        let img = decode_image(&png, "red.png", "\"red.png\"").unwrap();
         assert_eq!((img.width, img.height), (1, 1));
         assert_eq!(img.rgba, [255, 0, 0, 255]);
     }

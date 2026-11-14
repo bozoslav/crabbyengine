@@ -31,8 +31,11 @@ pub const MAX_SCENARIO_STEPS: usize = 100_000;
 /// Longest scenario, in simulation ticks (a bound for tools; 77 hours at 60 Hz).
 pub const MAX_SCENARIO_TICKS: u64 = 16_000_000;
 
-/// What a check step asserts, after the simulation systems of its tick ran.
+/// What a check step asserts, after the simulation systems of its tick ran
+/// (in a run with [`headless_frames`](crate::game::Game::headless_frames):
+/// after the whole frame of that tick).
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ScenarioCheck {
     /// A named action's edges and held state, as the systems of that tick
     /// saw them. Only the `Some` fields are compared.
@@ -62,6 +65,20 @@ pub enum ScenarioCheck {
         component: String,
         /// The expected number of entities.
         equals: usize,
+    },
+    /// A node of the retained UI (`ctx.ui`), found by its
+    /// [name](crate::ui::Ui::find). Only the `Some` fields are compared.
+    Ui {
+        /// The node's name.
+        node: String,
+        /// A node has that name.
+        exists: Option<bool>,
+        /// It is [shown](crate::ui::Ui::is_shown): on a screen of the stack, not hidden.
+        shown: Option<bool>,
+        /// It has the keyboard and gamepad focus.
+        focused: Option<bool>,
+        /// Its text (a label's, a button's, what a text input holds).
+        text: Option<String>,
     },
 }
 
@@ -121,6 +138,73 @@ impl ScenarioCheck {
         }
     }
 
+    /// Checks a node of the retained UI by name; chain with `.exists(true)`,
+    /// `.shown(true)`, `.focused(true)` and `.text("Back")`. Every field but
+    /// `exists` needs the node to exist.
+    /// ```
+    /// use ponko::scenario::ScenarioCheck;
+    /// let check = ScenarioCheck::ui("menu.play").shown(true).focused(true).text("Play");
+    /// ```
+    pub fn ui(node: impl Into<String>) -> Self {
+        Self::Ui {
+            node: node.into(),
+            exists: None,
+            shown: None,
+            focused: None,
+            text: None,
+        }
+    }
+
+    /// Expects a UI check's node to exist, or not (no effect on other checks).
+    #[must_use]
+    pub fn exists(mut self, expected: bool) -> Self {
+        if let Self::Ui { exists, .. } = &mut self {
+            *exists = Some(expected);
+        }
+        self
+    }
+
+    /// Expects a UI check's node to be shown, or not (no effect on other checks).
+    #[must_use]
+    pub fn shown(mut self, expected: bool) -> Self {
+        if let Self::Ui { shown, .. } = &mut self {
+            *shown = Some(expected);
+        }
+        self
+    }
+
+    /// Expects a UI check's node to have the focus, or not (no effect on other checks).
+    #[must_use]
+    pub fn focused(mut self, expected: bool) -> Self {
+        if let Self::Ui { focused, .. } = &mut self {
+            *focused = Some(expected);
+        }
+        self
+    }
+
+    /// Expects a UI check's node to have this text (no effect on other checks).
+    #[must_use]
+    pub fn text(mut self, expected: impl Into<String>) -> Self {
+        if let Self::Ui { text, .. } = &mut self {
+            *text = Some(expected.into());
+        }
+        self
+    }
+
+    /// Whether a UI check compares anything (an empty one is refused when read from JSON).
+    fn ui_is_empty(&self) -> bool {
+        matches!(
+            self,
+            Self::Ui {
+                exists: None,
+                shown: None,
+                focused: None,
+                text: None,
+                ..
+            }
+        )
+    }
+
     /// Checks how many entities have a reflected component.
     /// ```
     /// use ponko::scenario::ScenarioCheck;
@@ -130,6 +214,23 @@ impl ScenarioCheck {
         Self::Count {
             component: component.into(),
             equals,
+        }
+    }
+}
+
+/// A step that acts on the retained UI by node name.
+#[derive(Debug, Clone, PartialEq)]
+enum UiStep {
+    /// Click the node.
+    Click(String),
+    /// Click the node (a text input) and type `text` at its end.
+    Type(String, String),
+}
+
+impl UiStep {
+    fn node(&self) -> &str {
+        match self {
+            Self::Click(node) | Self::Type(node, _) => node,
         }
     }
 }
@@ -170,6 +271,8 @@ pub struct InputScenario {
     inputs: Vec<(u64, usize, InputEvent)>,
     /// Sorted like `inputs`.
     checks: Vec<(u64, usize, ScenarioCheck)>,
+    /// Steps on the retained UI, sorted like `inputs`.
+    ui: Vec<(u64, usize, UiStep)>,
     /// How many steps were added; the next step's number.
     steps: usize,
     duration: Option<u64>,
@@ -216,6 +319,57 @@ impl InputScenario {
         self.checks.insert(index, (tick, self.steps, check));
         self.steps += 1;
         self
+    }
+
+    /// Clicks the retained UI's node named `node` on tick `tick`: the
+    /// pointer goes to the node's centre and presses and releases there in
+    /// one frame, through the UI's own hit testing, so a button behind a
+    /// modal or a disabled one is not clicked.
+    ///
+    /// The UI handles clicks in frames. In a run with
+    /// [`headless_frames`](crate::game::Game::headless_frames) the click is
+    /// part of the frame of tick `tick`: its [`UiEvent`](crate::ui::UiEvent)s
+    /// are there for that frame's systems. With a window it lands in the
+    /// frame after that tick's; a simulation-only headless run has no frames
+    /// and never clicks. One UI step is used per frame: a second one on the
+    /// same tick waits for the next frame.
+    ///
+    /// The run fails at this tick when no node has the name, it is not
+    /// shown, or something else is under its centre.
+    /// ```
+    /// use ponko::scenario::{InputScenario, ScenarioCheck};
+    /// let scenario = InputScenario::new()
+    ///     .click(5, "menu.settings")
+    ///     .expect(5, ScenarioCheck::ui("settings").shown(true));
+    /// ```
+    pub fn click(mut self, tick: u64, node: impl Into<String>) -> Self {
+        self.push_ui(tick, UiStep::Click(node.into()));
+        self
+    }
+
+    /// Types `text` into the retained UI's text input named `node` on tick
+    /// `tick`: clicks it (see [`click`](Self::click)), which focuses it, and
+    /// types `text` at the end of what it holds, in the same frame. The
+    /// field sends [`UiEvent::Changed`](crate::ui::UiEvent::Changed). For
+    /// Enter, Backspace or Tab afterwards, add key steps.
+    ///
+    /// The run fails at this tick for the reasons `click` does, and when the
+    /// node is not a text input.
+    /// ```
+    /// use ponko::scenario::{InputScenario, ScenarioCheck};
+    /// let scenario = InputScenario::new()
+    ///     .type_text(3, "login.name", "Ada")
+    ///     .expect(3, ScenarioCheck::ui("login.name").focused(true).text("Ada"));
+    /// ```
+    pub fn type_text(mut self, tick: u64, node: impl Into<String>, text: impl Into<String>) -> Self {
+        self.push_ui(tick, UiStep::Type(node.into(), text.into()));
+        self
+    }
+
+    fn push_ui(&mut self, tick: u64, step: UiStep) {
+        let index = self.ui.partition_point(|&(t, ..)| t <= tick);
+        self.ui.insert(index, (tick, self.steps, step));
+        self.steps += 1;
     }
 
     /// Names the scenario in its report.
@@ -275,7 +429,11 @@ impl InputScenario {
         self.duration.unwrap_or_else(|| {
             let last_input = self.inputs.last().map(|s| s.0);
             let last_check = self.checks.last().map(|s| s.0);
-            last_input.max(last_check).map_or(0, |t| t.saturating_add(1))
+            let last_ui = self.ui.last().map(|s| s.0);
+            last_input
+                .max(last_check)
+                .max(last_ui)
+                .map_or(0, |t| t.saturating_add(1))
         })
     }
 
@@ -299,9 +457,12 @@ impl InputScenario {
     /// ponko::input::Input steps are `key` (`key`, `down`), `mouse` (`button`, `down`),
     /// `gamepad_button` (`pad`, `button`, `down`), `gamepad_axis` (`pad`,
     /// `axis`, `value`), `focus_lost` and `gamepad_disconnected` (`pad`).
+    /// UI steps are `ui_click` (`node`) and `ui_type` (`node`, `text`), see
+    /// [`click`](Self::click) and [`type_text`](Self::type_text).
     /// Check steps are `expect_action` (`action` and any of `pressed`, `down`,
-    /// `released`), `expect_resource` (`resource`, `pointer`, `equals`) and
-    /// `expect_count` (`component`, `equals`). Every step has a `tick`.
+    /// `released`), `expect_resource` (`resource`, `pointer`, `equals`),
+    /// `expect_count` (`component`, `equals`) and `expect_ui` (`node` and any
+    /// of `exists`, `shown`, `focused`, `text`). Every step has a `tick`.
     /// Steps may come in any order; their step number is their position in
     /// the file, from 0. Unknown fields, a newer `version`, more than
     /// [`crate::scenario::MAX_SCENARIO_STEPS`] steps, a duration over [`crate::scenario::MAX_SCENARIO_TICKS`]
@@ -359,7 +520,13 @@ impl InputScenario {
             }
             match step.into_step() {
                 Step::Input(event) => scenario = scenario.at(tick, event),
+                Step::Ui(step) => scenario.push_ui(tick, step),
                 Step::Check(check) => {
+                    if check.ui_is_empty() {
+                        return Err(ScenarioError(format!(
+                            "step {n}: `expect_ui` needs at least one of `exists`, `shown`, `focused`, `text`"
+                        )));
+                    }
                     if let ScenarioCheck::Action {
                         pressed: None,
                         down: None,
@@ -399,6 +566,11 @@ impl InputScenario {
             self.checks
                 .iter()
                 .map(|(tick, n, check)| (*n, StepWire::from_check(*tick, check))),
+        );
+        steps.extend(
+            self.ui
+                .iter()
+                .map(|(tick, n, step)| (*n, StepWire::from_ui(*tick, step))),
         );
         steps.sort_by_key(|s| s.0);
         let file = FileWire {
@@ -481,7 +653,7 @@ pub struct ScenarioReport {
     pub start_tick: u64,
     /// Steps in the scenario.
     pub steps: usize,
-    /// ponko::input::Input steps fed so far.
+    /// Input steps fed so far, UI steps (clicks, typing) included.
     pub inputs_applied: usize,
     /// Checks that held so far.
     pub checks_passed: usize,
@@ -551,6 +723,9 @@ pub(crate) struct ScenarioRun {
     start: u64,
     next_input: usize,
     next_check: usize,
+    next_ui: usize,
+    /// A UI step that could not be done; reported when its tick ends.
+    ui_failure: Option<(u64, usize, String, String)>,
     /// The control connection that owns it, if it's bound to one.
     pub(crate) owner: Option<u64>,
     /// Loaded by a tool: input left held at the end stays owned (see [`Leftover`]).
@@ -690,6 +865,8 @@ impl crate::input::Input {
             start,
             next_input: 0,
             next_check: 0,
+            next_ui: 0,
+            ui_failure: None,
             owner: origin.owner,
             tool: origin.tool,
             own_steps,
@@ -778,6 +955,27 @@ impl Ctx {
             run.next_input += 1;
             fed += 1;
         }
+        // One UI step a frame: the UI takes one click per frame.
+        if let Some((tick, step, ui)) = run.scenario.ui.get(run.next_ui)
+            && *tick <= rel
+            && run.ui_failure.is_none()
+        {
+            let text = match ui {
+                UiStep::Click(_) => None,
+                UiStep::Type(_, text) => Some(text.as_str()),
+            };
+            match self.script_ui_click(ui.node(), text) {
+                Ok(()) => fed += 1,
+                Err(message) => {
+                    let what = match ui {
+                        UiStep::Click(node) => format!("click {node}"),
+                        UiStep::Type(node, _) => format!("type into {node}"),
+                    };
+                    run.ui_failure = Some((*tick, *step, what, message));
+                }
+            }
+            run.next_ui += 1;
+        }
         if let Some(report) = self.world.get_resource_mut::<ScenarioReport>() {
             report.status = ScenarioStatus::Running;
             report.inputs_applied += fed;
@@ -785,13 +983,13 @@ impl Ctx {
         self.input.scenarios.run = Some(run);
     }
 
-    /// After a tick's simulation systems: runs the checks due, and ends the
-    /// run on a failure or when its duration is over.
-    pub(crate) fn scenario_end_tick(&mut self) {
+    /// After the simulation systems of tick `sim_tick` (with headless
+    /// frames, after its whole frame): runs the checks due, and ends the run
+    /// on a failure or when its duration is over.
+    pub(crate) fn scenario_end_tick(&mut self, sim_tick: u64) {
         let Some(mut run) = self.input.scenarios.run.take() else {
             return;
         };
-        let sim_tick = self.time.sim_tick();
         if sim_tick < run.start {
             self.input.scenarios.run = Some(run);
             return;
@@ -799,8 +997,21 @@ impl Ctx {
         let rel = sim_tick - run.start;
         run.ticks_done += 1;
         let mut passed = 0;
-        let mut failure = None;
-        while let Some((tick, step, check)) = run.scenario.checks.get(run.next_check) {
+        let mut failure = run
+            .ui_failure
+            .take()
+            .map(|(tick, step, check, message)| ScenarioFailure {
+                step,
+                tick,
+                sim_tick,
+                check,
+                expected: Value::Null,
+                actual: Value::Null,
+                message,
+            });
+        while let Some((tick, step, check)) = run.scenario.checks.get(run.next_check)
+            && failure.is_none()
+        {
             if *tick > rel {
                 break;
             }
@@ -1017,13 +1228,79 @@ fn evaluate(ctx: &Ctx, check: &ScenarioCheck) -> Result<(), Box<ScenarioFailure>
                 format!("expected {equals} entities with `{component}`, found {actual}"),
             ))
         }
+        ScenarioCheck::Ui {
+            node,
+            exists,
+            shown,
+            focused,
+            text,
+        } => evaluate_ui(&ctx.ui, node, *exists, *shown, *focused, text.as_deref()),
     }
+}
+
+/// A [`ScenarioCheck::Ui`] against `ui`.
+fn evaluate_ui(
+    ui: &crate::ui::Ui,
+    node: &str,
+    exists: Option<bool>,
+    shown: Option<bool>,
+    focused: Option<bool>,
+    text: Option<&str>,
+) -> Result<(), Box<ScenarioFailure>> {
+    let label = format!("ui {node}");
+    let id = ui.find(node);
+    let mut expected = serde_json::Map::new();
+    let mut seen = serde_json::Map::new();
+    let mut wrong = Vec::new();
+    let mut compare = |key: &str, want: Value, have: Value| {
+        if want != have {
+            wrong.push(format!("{key}: expected {want}, saw {have}"));
+        }
+        expected.insert(key.into(), want);
+        seen.insert(key.into(), have);
+    };
+    if let Some(want) = exists {
+        compare("exists", json!(want), json!(id.is_some()));
+    }
+    let others = shown.is_some() || focused.is_some() || text.is_some();
+    match id {
+        None if others => {
+            return Err(failure(
+                &label,
+                Value::Null,
+                Value::Null,
+                format!("no UI node is named `{node}`"),
+            ));
+        }
+        None => {}
+        Some(id) => {
+            if let Some(want) = shown {
+                compare("shown", json!(want), json!(ui.is_shown(id)));
+            }
+            if let Some(want) = focused {
+                compare("focused", json!(want), json!(ui.focus() == Some(id)));
+            }
+            if let Some(want) = text {
+                compare("text", json!(want), json!(ui.text(id).unwrap_or_default()));
+            }
+        }
+    }
+    if wrong.is_empty() {
+        return Ok(());
+    }
+    Err(failure(
+        &label,
+        Value::Object(expected),
+        Value::Object(seen),
+        format!("UI node `{node}` {}", wrong.join("; ")),
+    ))
 }
 
 // -------------------------------------------------------------------- wire
 
 enum Step {
     Input(InputEvent),
+    Ui(UiStep),
     Check(ScenarioCheck),
 }
 
@@ -1094,6 +1371,27 @@ enum StepWire {
         component: String,
         equals: usize,
     },
+    UiClick {
+        tick: u64,
+        node: String,
+    },
+    UiType {
+        tick: u64,
+        node: String,
+        text: String,
+    },
+    ExpectUi {
+        tick: u64,
+        node: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exists: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shown: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focused: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
 }
 
 impl StepWire {
@@ -1107,7 +1405,10 @@ impl StepWire {
             | Self::GamepadDisconnected { tick, .. }
             | Self::ExpectAction { tick, .. }
             | Self::ExpectResource { tick, .. }
-            | Self::ExpectCount { tick, .. } => *tick,
+            | Self::ExpectCount { tick, .. }
+            | Self::UiClick { tick, .. }
+            | Self::UiType { tick, .. }
+            | Self::ExpectUi { tick, .. } => *tick,
         }
     }
 
@@ -1142,6 +1443,22 @@ impl StepWire {
                 equals,
             }),
             Self::ExpectCount { component, equals, .. } => Step::Check(ScenarioCheck::Count { component, equals }),
+            Self::UiClick { node, .. } => Step::Ui(UiStep::Click(node)),
+            Self::UiType { node, text, .. } => Step::Ui(UiStep::Type(node, text)),
+            Self::ExpectUi {
+                node,
+                exists,
+                shown,
+                focused,
+                text,
+                ..
+            } => Step::Check(ScenarioCheck::Ui {
+                node,
+                exists,
+                shown,
+                focused,
+                text,
+            }),
         }
     }
 
@@ -1186,6 +1503,27 @@ impl StepWire {
                 component,
                 equals,
             },
+            ScenarioCheck::Ui {
+                node,
+                exists,
+                shown,
+                focused,
+                text,
+            } => Self::ExpectUi {
+                tick,
+                node,
+                exists,
+                shown,
+                focused,
+                text,
+            },
+        }
+    }
+
+    fn from_ui(tick: u64, step: &UiStep) -> Self {
+        match step.clone() {
+            UiStep::Click(node) => Self::UiClick { tick, node },
+            UiStep::Type(node, text) => Self::UiType { tick, node, text },
         }
     }
 }

@@ -62,6 +62,32 @@ static void action_map_snippet() {
 }
 // ANCHOR_END: action_map
 
+// ANCHOR: pressed_this_frame
+// A rebinding prompt: bind whatever button-like input the player presses next.
+static bool rebind_jump(ponko::ctx& ctx) {
+    for (const ponko::pressed_input& pressed : ctx.pressed_this_frame()) {
+        if (pressed.is_gamepad_axis()) continue;  // axes bind with action::axis
+        auto bindings = ctx.actions();
+        bindings.set("jump", ponko::action::button({pressed.binding()}));
+        ctx.set_actions(bindings);
+        return true;
+    }
+    return false;
+}
+// ANCHOR_END: pressed_this_frame
+
+static void pressed_this_frame_snippet() {
+    ponko::game("rebind", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ponko::action_map bindings;
+        bindings.set("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_SPACE)}));
+        ctx.set_actions(bindings);
+        if (rebind_jump(ctx)) throw std::runtime_error("nothing was pressed yet");
+        ctx.feed_input(ponko::input_event::key(PONKO_KEY_K, true));
+        if (!rebind_jump(ctx)) throw std::runtime_error("the press was not reported");
+        if (!ctx.action_down("jump")) throw std::runtime_error("jump was not rebound");
+    });
+}
+
 // ---- Entities, components, queries -----------------------------------------
 // ANCHOR: ecs_components
 struct Health { float value; };
@@ -396,6 +422,75 @@ static void count_neighbors(ponko::ctx& ctx) {
     // ANCHOR_END: pixels
 }
 
+// ANCHOR: sprite_materials
+/// Burns a sprite away where its noise texture is below `material.params[0].x`.
+static const char* dissolve_shader = R"(
+fn fragment(p: SpritePixel) -> vec4<f32> {
+    if material_sample0(p.local).r < material.params[0].x {
+        discard;
+    }
+    return p.color;
+})";
+
+static ponko::sprite_material sprite_looks(ponko::ctx& ctx, ponko::texture crab, ponko::texture noise) {
+    auto world = ctx.world();
+    // A glow that brightens what's behind it:
+    world.spawn(ponko::transform_at({400, 300}), ponko::sprite_of(crab), ponko::sprite_blend::additive);
+    // A sprite with a shader of its own:
+    auto desc = ponko::sprite_material_of(ctx.create_sprite_shader("dissolve.wgsl", dissolve_shader));
+    ponko::set_texture(desc, 0, noise);
+    auto dissolve = ctx.create_sprite_material(desc);
+    world.spawn(ponko::transform_at({200, 300}), ponko::sprite_of(crab), dissolve);
+    // Immediate draws take both too:
+    ctx.draw(crab, {100, 100}, ponko::draw_defaults(), ponko::sprite_blend::additive, dissolve);
+    return dissolve;
+}
+
+/// Burns it a little further (call it every frame).
+static void burn(ponko::ctx& ctx, ponko::sprite_material dissolve, float progress) {
+    if (auto desc = ctx.sprite_material_desc_of(dissolve)) {
+        ponko::set_param(*desc, 0, progress, 0, 0, 0);
+        ctx.update_sprite_material(dissolve, *desc);
+    }
+}
+// ANCHOR_END: sprite_materials
+
+/// Runs the sprite material snippet headless and checks what it made.
+static void sprite_looks_run() {
+    ponko::game("sprite material guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        std::uint8_t white[4] = {255, 255, 255, 255};
+        const auto pixel = ctx.create_texture(1, 1, white, sizeof white);
+        const auto dissolve = sprite_looks(ctx, pixel, pixel);
+        burn(ctx, dissolve, 0.5f);
+        const auto desc = ctx.sprite_material_desc_of(dissolve);
+        if (!desc || desc->params[0] != 0.5f || !desc->has_textures[0] || desc->has_textures[1]) {
+            std::fprintf(stderr, "sprite material guide: params\n");
+            std::abort();
+        }
+        std::size_t glows = 0, burning = 0;
+        // A blend mode is checked as it's stored, so it isn't a query column: get it by entity.
+        std::vector<ponko::entity> placed;
+        ctx.world().each([&](ponko::entity e, const ponko::transform2d&) { placed.push_back(e); });
+        for (auto e : placed)
+            glows += ctx.world().has<ponko::sprite_blend>(e) &&
+                     ctx.world().get<ponko::sprite_blend>(e) == ponko::sprite_blend::additive;
+        ctx.world().each([&](const ponko::sprite_material& m) { burning += m.id == dissolve.id; });
+        const auto status = ctx.shader_status();
+        if (glows != 1 || burning != 1 || status.size() != 1 || status[0].info.kind != PONKO_SHADER_SPRITE) {
+            std::fprintf(stderr, "sprite material guide: components or status\n");
+            std::abort();
+        }
+        ctx.free(dissolve);
+        if (ctx.is_live(dissolve) || ctx.sprite_material_desc_of(dissolve)) std::abort();
+        // A broken shader is an error that says where, in its own lines.
+        const auto broken = ctx.try_create_sprite_shader("flash.wgsl", "// white\nfn fragment(p: SpritePixel) -> vec4<f32> {\n    return 1.0;\n}");
+        if (broken || ctx.shader_status()[1].info.line != 3) {
+            std::fprintf(stderr, "sprite material guide: errors\n");
+            std::abort();
+        }
+    });
+}
+
 // ---- Sprite sheets, animation and tilemaps ------------------------------------------
 [[maybe_unused]] static void sheets(ponko::ctx& ctx, ponko::vec2 pos) {
     auto world = ctx.world();
@@ -441,6 +536,53 @@ static void paint(ponko::ctx& ctx, ponko::entity map) {
     if (auto tile = tiles.tile_at(origin, ctx.mouse_world())) tiles.set((*tile)[0], (*tile)[1], STONE);
 }
 // ANCHOR_END: paint
+
+// ANCHOR: level_spawn
+static ponko::entity spawn_meadow(ponko::ctx& ctx) {
+    ponko::level_options options;
+    options.prefabs = {{"Chest", "prefabs/chest.json"}}; // objects of this class become prefab instances
+    options.solid = {"Ground"};                          // tiles of this layer collide too
+    return ponko::spawn_level(ctx, "levels/meadow.tmx", {0, 0}, options);
+}
+// ANCHOR_END: level_spawn
+
+// ANCHOR: level_objects
+static ponko::vec2 start_position(ponko::ctx& ctx, ponko::entity level) {
+    for (ponko::entity e : ponko::level_entities(ctx, level)) {
+        if (!ctx.world().try_get<ponko::transform2d>(e)) continue;
+        try {
+            if (ponko::level_object_class(ctx, e) == "Spawn") return ponko::level_object_of(ctx, e).position;
+        } catch (const ponko::error&) {} // a layer or a collider, not an object
+    }
+    return {48, 120};
+}
+// ANCHOR_END: level_objects
+
+// ANCHOR: autotile
+static void build_wall(ponko::ctx& ctx, ponko::entity walls, std::uint32_t x, std::uint32_t y) {
+    ponko::autotile_rule rule;
+    rule.frames = {7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7}; // one piece per mask N=1 E=2 S=4 W=8
+    ponko::tilemap_paint_autotile(ctx, walls, rule, x, y, true);
+    const std::size_t bodies = ponko::tilemap_spawn_colliders(ctx, walls, {7});
+    (void)bodies;
+}
+// ANCHOR_END: autotile
+
+static void levels_guide(ponko::ctx& ctx) {
+    const ponko::entity level = spawn_meadow(ctx);
+    const ponko::vec2 start = start_position(ctx, level);
+    if (start.x != 48.0f) { std::fprintf(stderr, "level start\n"); std::abort(); }
+    // ANCHOR: tile_extras
+    const ponko::entity sky = ctx.world().spawn(ponko::transform_at({0, 0}));
+    ctx.world().add_tilemap(sky, ponko::sheet_of(ctx.load_texture("levels/meadow.png"), 16, 16), 40, 15);
+    ponko::tilemap_set_parallax(ctx, sky, {0.3f, 0.3f});                 // far away: scrolls slowly
+    ponko::tilemap_animate(ctx, sky, 4, {{4, 0.4f}, {5, 0.4f}});         // tile 4 shows 4, 5, 4, 5, ...
+    ponko::tilemap_set_flipped(ctx, sky, 3, 2, 7, PONKO_TILE_FLIP_X);   // a mirrored tile
+    // ANCHOR_END: tile_extras
+    build_wall(ctx, sky, 10, 10);
+    if (ponko::tilemap_flip(ctx, sky, 3, 2) != PONKO_TILE_FLIP_X) { std::fprintf(stderr, "flip\n"); std::abort(); }
+    ponko::despawn_level(ctx, level);
+}
 
 // ---- Camera, text and UI ---------------------------------------------------------
 [[maybe_unused]] static void camera(ponko::ctx& ctx, ponko::vec2 bounds) {
@@ -1071,6 +1213,64 @@ static void the_beach_has_five_palms() {
     std::size_t palms = 0;
     world.each([&](const Palm&) { ++palms; });
     if (palms != 5) { std::fprintf(stderr, "%zu palms\n", palms); std::abort(); }
+}
+
+// ---- Saves and settings --------------------------------------------------------------
+// ANCHOR: storage
+static void keep_volume(ponko::ctx& ctx, float volume) {
+    // The old file stays whole until the new one is, then becomes the backup.
+    ctx.storage_write("volume.txt", std::to_string(volume));
+}
+
+static float saved_volume(ponko::ctx& ctx) {
+    auto text = ctx.storage_read_text("volume.txt");   // nothing on a first run
+    return text ? std::stof(*text) : 1.0f;
+}
+
+static void quick_save(ponko::ctx& ctx) { ctx.save_world("quick"); }   // saves/quick.json
+static void quick_load(ponko::ctx& ctx) { ctx.load_world("quick"); }
+// ANCHOR_END: storage
+
+static void storage_keeps_files_between_runs() {
+    // A folder of the test's own (beside the test binary), not the player's data folder.
+    ponko::game("guide", 1, 1).data_dir("guide-storage").run_headless(0, [](ponko::ctx& ctx) {
+        ctx.storage_delete("volume.txt");
+        if (saved_volume(ctx) != 1.0f) std::abort();
+        keep_volume(ctx, 0.25f);
+        ctx.world().reflect<Palm>({ponko::field("height", &Palm::height)});
+        ctx.world().spawn(Palm{3});
+        quick_save(ctx);
+    });
+    auto world = ponko::game("guide", 1, 1).data_dir("guide-storage").run_headless(0, [](ponko::ctx& ctx) {
+        if (saved_volume(ctx) != 0.25f) { std::fprintf(stderr, "volume %f\n", double(saved_volume(ctx))); std::abort(); }
+        if (ctx.storage_list() != std::vector<std::string>{"saves/quick.json", "volume.txt"}) std::abort();
+        if (ctx.storage_read("missing.txt").has_value()) std::abort();
+        ctx.world().reflect<Palm>({ponko::field("height", &Palm::height)});
+        quick_load(ctx);
+    });
+    std::size_t palms = 0;
+    world.each([&](const Palm& p) { palms += p.height == 3 ? 1 : 0; });
+    if (palms != 1) { std::fprintf(stderr, "%zu saved palms\n", palms); std::abort(); }
+    bool refused = false;
+    ponko::game("guide", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {   // no app id: no files
+        try { keep_volume(ctx, 0.5f); } catch (const ponko::error&) { refused = true; }
+    });
+    if (!refused) std::abort();
+}
+
+// ANCHOR: prefab_tree
+static void carts(ponko::ctx& ctx) {
+    // A cart: its body (the root), two wheels, a driver and the driver's hat.
+    auto cart = ctx.spawn_prefab("prefabs/cart.json", {200, 300});
+    auto parts = ctx.prefab_parts(cart);   // the four parts spawned with it
+    ctx.despawn_prefab(cart);              // the body and its four parts
+    if (parts.size() != 4 || ctx.world().size() != 0) std::abort();
+}
+// ANCHOR_END: prefab_tree
+
+static void a_cart_comes_and_goes_whole() {
+    auto world = ponko::game("guide", 1, 1).run_headless(0, carts);
+    if (world.size() != 0) { std::fprintf(stderr, "%zu left\n", world.size()); std::abort(); }
 }
 
 // ---- 3D -------------------------------------------------------------------------------
@@ -2256,6 +2456,24 @@ static void campfire(ponko::ctx& ctx) {
     // ANCHOR_END: particles
 }
 
+static void sparks2d(ponko::ctx& ctx) {
+    // ANCHOR: particles2d
+    auto sparks = ponko::particle_settings2d()
+                      .rate(80)
+                      .cone(0.4f)
+                      .speed(120, 240)
+                      .lifetime(0.6f, 1.2f)
+                      .gravity({0, 260})
+                      .size(2, 4)
+                      .color_over_life({{0, {1, 0.9f, 0.4f, 1}}, {1, {1, 0.3f, 0, 0}}})
+                      .blend(ponko::sprite_blend::additive)
+                      .z(2);
+    auto e = ctx.world().spawn(ponko::transform_at({400, 300}));
+    ctx.set_particle_emitter2d(e, sparks);
+    ctx.particle_burst2d(e, 30); // more at any time
+    // ANCHOR_END: particles2d
+}
+
 static void ribbons(ponko::ctx& ctx) {
     auto white = ctx.default_material();
     auto floor_data = ponko::mesh_data::plane(12);
@@ -2739,6 +2957,35 @@ static void jump_once() {
 }
 // ANCHOR_END: input_scenario
 
+// ANCHOR: headless_frames
+static void menu_opens_settings() {
+    using ponko::scenario_check;
+    ponko::input_scenario scenario;
+    scenario.expect(0, scenario_check::ui("menu.settings").shown(true).text("Settings"))
+        .click(2, "menu.settings")
+        .expect(2, scenario_check::ui("settings").shown(true))
+        .expect(2, scenario_check::ui("menu.settings").shown(false));
+    auto run = ponko::game("menu test", 800, 600)
+        .headless_frames(true) // frames too: the UI and frame systems run
+        .system([](ponko::ctx& ctx) {
+            auto ui = ctx.ui_retained();
+            if (auto clicked = ui.take_click(); clicked && clicked == ui.find("menu.settings")) {
+                ui.pop_screen();
+                ui.push_screen(*ui.find("settings"));
+            }
+        })
+        .run_headless_scenario(scenario, [](ponko::ctx& ctx) {
+            namespace u = ponko::ui;
+            auto ui = ctx.ui_retained();
+            auto menu = ui.add_panel(u::none, u::fill());
+            ui.set_name(ui.add_button(menu, "Settings", u::fixed(200, 40)), "menu.settings");
+            ui.set_name(ui.add_panel(u::none, u::fill()), "settings");
+            ui.push_screen(menu);
+        });
+    if (!run.report.passed()) throw std::runtime_error(run.world.scenario_report_json());
+}
+// ANCHOR_END: headless_frames
+
 // ANCHOR: asset_sources
 static void embedded_assets(ponko::ctx& ctx) {
     // Compiled into the executable: nothing to ship next to it.
@@ -2899,8 +3146,10 @@ static void run_all() {
 
 int main() {
     builder_setup_runs_headless();
+    sprite_looks_run();
     action_ids_run();
     jump_once();
+    menu_opens_settings();
     resource_scope_run();
     ponko::game("asset source guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         embedded_assets(ctx);
@@ -2917,6 +3166,7 @@ int main() {
     ponko::game("panel guide", 960, 640).run_headless(0, panel_guide);
     ponko::game("particle guide", 1, 1).run_headless(0, campfire);
     ponko::game("ribbon guide", 1, 1).run_headless(0, ribbons);
+    ponko::game("particle 2d guide", 1, 1).run_headless(0, sparks2d);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
     if (!replication_snippets()) { std::fprintf(stderr, "replication snippets failed\n"); std::abort(); }
     ponko::game("sound guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
@@ -2930,6 +3180,7 @@ int main() {
         } catch (const std::exception&) {}
         if (report_shader_errors(ctx) != 1 || ctx.shader_status()[0].info.line != 3) std::abort();
     });
+    ponko::game("level guide", 1, 1).physics({0, 700}).run_headless(0, levels_guide);
     ponko::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     ponko::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
     ponko::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);
@@ -2950,6 +3201,8 @@ int main() {
     the_trees_stand_on_the_ground();
     the_dive_adds_one_effect();
     the_beach_has_five_palms();
+    storage_keeps_files_between_runs();
+    a_cart_comes_and_goes_whole();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();
     turrets_ride_on_tanks();
@@ -3072,6 +3325,7 @@ int main() {
     });
     world_text_snippet();
     action_map_snippet();
+    pressed_this_frame_snippet();
     ponko::game("static instances",1,1).run_headless(0,[](ponko::ctx& ctx) {
         auto material=ctx.create_material(ponko::material_of(ponko::colors::white));
         persistent_instances(ctx,ctx.create_mesh(ponko::mesh_data::cube(1.0f),material));

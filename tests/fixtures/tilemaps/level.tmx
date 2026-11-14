@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.11.0" orientation="orthogonal" renderorder="right-down" width="8" height="6" tilewidth="16" tileheight="16" infinite="0" backgroundcolor="#203040" parallaxoriginx="64" parallaxoriginy="48" nextlayerid="9" nextobjectid="6">
+ <properties>
+  <property name="music" value="theme.ogg"/>
+  <property name="gravity" type="float" value="980"/>
+  <property name="rules" type="class" propertytype="Rules">
+   <properties>
+    <property name="lives" type="int" value="3"/>
+   </properties>
+  </property>
+ </properties>
+ <tileset firstgid="1" source="ground.tsx"/>
+ <tileset firstgid="9" name="spaced" tilewidth="16" tileheight="16" spacing="2" margin="1" tilecount="2" columns="2">
+  <image source="spaced.png" width="36" height="18"/>
+ </tileset>
+ <imagelayer id="8" name="Sky" parallaxx="0" parallaxy="0">
+  <image source="tiles.png" width="64" height="32"/>
+ </imagelayer>
+ <layer id="1" name="Background" width="8" height="6" parallaxx="0.5" parallaxy="0.5">
+  <properties>
+   <property name="far" type="bool" value="true"/>
+  </properties>
+  <data encoding="csv">
+1,1,1,1,1,1,1,1,
+1,1,1,1,1,1,1,1,
+1,1,1,1,1,1,1,1,
+1,1,1,1,1,1,1,1,
+1,1,1,1,1,1,1,1,
+1,1,1,1,1,1,1,1
+</data>
+ </layer>
+ <layer id="2" name="Ground" width="8" height="6">
+  <data encoding="base64" compression="zlib">
+   eJxjYBgcgAmIGRkYGtiANAcQcwExCwPDAhYIjRMDADVkAWA=
+  </data>
+ </layer>
+ <layer id="3" name="Collision" width="8" height="6" visible="0">
+  <data encoding="csv">
+1,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0
+</data>
+ </layer>
+ <objectgroup id="4" name="Objects">
+  <object id="1" template="coin.tx" x="40" y="48">
+   <properties>
+    <property name="value" type="int" value="10"/>
+   </properties>
+  </object>
+  <object id="2" name="Spawn" x="24" y="72">
+   <point/>
+  </object>
+  <object id="3" name="Door" type="Door" x="96" y="48" width="16" height="32">
+   <properties>
+    <property name="target" type="file" value="level2.tmj"/>
+    <property name="locked" type="bool" value="true"/>
+    <property name="glow" type="color" value="#ff00ff00"/>
+   </properties>
+  </object>
+  <object id="4" name="Hill" x="0" y="96">
+   <polygon points="0,0 16,0 8,-8"/>
+  </object>
+  <object id="5" type="Coin" gid="2" x="72" y="80" width="16" height="16"/>
+ </objectgroup>
+ <group id="6" name="Front" offsety="-4">
+  <layer id="7" name="Foreground" width="8" height="6" opacity="0.5" tintcolor="#ff0000">
+   <data encoding="csv">
+5,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0
+</data>
+  </layer>
+ </group>
+</map>

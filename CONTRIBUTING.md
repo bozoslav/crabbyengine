@@ -135,6 +135,205 @@ lands (maintainers can add the `full-ci` label to run it on the PR first).
 Claims need numbers: measure in release builds before and after, and put
 both in the pull request. Avoid per-frame heap allocations on hot paths.
 
+### Breaking changes: the migration note
+
+[STABILITY.md](STABILITY.md) promises that every break comes with what to use
+instead. A change that breaks code written against the last release (a
+renamed, moved or removed item, a changed signature, behaviour or default; the
+semver check below finds some of them, you and the reviewer the rest) carries
+its migration note in its own pull request:
+
+- A changelog fragment with a `### Breaking changes` section
+  ([changelog.d/README.md](changelog.d/README.md)). Each entry says **what
+  changed**, **what to write instead**, and shows the code **before and
+  after**:
+
+  ````md
+  ### Breaking changes
+  - `Foo::bar` takes a `Baz` now.
+    Instead: wrap the argument, `Baz::new(x)`.
+    Before:
+    ```rust
+    foo.bar(x);
+    ```
+    After:
+    ```rust
+    foo.bar(Baz::new(x));
+    ```
+  ````
+
+  `python3 scripts/changelog.py --check` (CI runs it) refuses an entry that
+  lacks any of the three.
+- The **`breaking` label** on the pull request. The two go together, in both
+  directions: the Semver checks job fails a pull request that breaks the API
+  without the label and a fragment, and fails one that has the label but no
+  such fragment (the tool does not see every break, and a label is a promise
+  of a migration note). Labels don't start CI, so re-run the job after
+  adding one.
+- **Deprecate first where it is cheap**, as STABILITY.md's "Releases" says: a
+  replaced item stays for one minor as `#[deprecated(note = "use X")]` (Rust)
+  or with a note in the header (C), pointing at its replacement, and the next
+  minor removes it. It is cheap when the old item can forward to the new one
+  without keeping a second implementation alive: a rename, a moved item, a
+  method that became a builder step. It is not cheap when the old and new
+  behaviour can't coexist (a changed default, a changed data layout, a type
+  that gained a required field): remove it at once, with the entry above.
+  Deprecating is itself a change that goes under `### Deprecated`, not
+  `Breaking changes`, and names the replacement too. The removal, a minor
+  later, is the change that gets the `Breaking changes` entry.
+
+At release time `scripts/changelog.py --version X.Y.Z` folds the entries into
+the **Breaking changes** block of the CHANGELOG (the short form: what changed
+and what to write instead, which is also the GitHub release's notes) and writes
+the same entries, with their snippets, to `book/src/migrating-to-X.Y.md`, which
+it lists in `book/src/SUMMARY.md`. Nobody writes the chapter by hand. See
+[Releasing](#releasing).
+
+### API snapshots
+
+The `api/` folder holds a generated listing of the public API of every
+published crate, one item per line, made with
+[cargo-public-api](https://github.com/cargo-public-api/cargo-public-api). The
+**API snapshots** job of CI regenerates it and fails when it differs from the
+committed files, so a pull request that adds, renames, widens or removes a
+public item shows it as a diff, and the reviewer decides whether the surface
+is meant. 1.0 needs a deliberate surface; this is how it stays one. It is a
+quick check (no tests): on a GitHub runner without a cache the whole job took
+3.6 minutes (about 2.2 of them the listing itself); the dependency cache of
+`main` is restored on top, so expect less. Locally, `update` took 1.9 minutes
+on a busy laptop with a warm dependency build, and a rerun is under half a
+minute.
+
+**After changing public API, run one command and commit the result:**
+
+```sh
+python3 scripts/api-snapshots.py update
+git add api
+```
+
+- **What is listed.** `ponko`, `ponko_ecs`, `ponko_ffi`, `ponko_mcp` and
+  `ponko_unity` (not proc-macro or binary-only crates), as
+  `api/<crate>/<set>.txt`: `default` (default features), `no-default-features`
+  (for `ponko`: headless), `docs-rs` (the features docs.rs builds: all the
+  public ones, `3d` included) and, for `ponko`, `3d` (the defaults plus `3d`).
+  A set that lists the same as `default` has no file. Blanket and auto-trait
+  impls are left out as noise; derived impls (`Clone`, `Debug`) stay.
+- **Reading a failure.** The log and the job summary show the diff and the
+  command above. If you cannot run the tool, the job uploads the regenerated
+  folder as the `api-regenerated` artifact: copy it over `api/`. A diff you did
+  not intend means something became public by accident (`pub` instead of
+  `pub(crate)`, a `pub use` that pulls in more than it should): fix the code,
+  not the snapshot.
+- **Merge conflicts in `api/`** (two pull requests added public API): do not
+  merge the files by hand. Resolve the source, then run the command again.
+- **Tools.** The script pins `cargo-public-api` and the nightly toolchain it
+  needs together (`TOOL_VERSION` and `NIGHTLY`), because the tool reads rustdoc
+  JSON, whose format changes with every nightly; CI reads the pins from the
+  script, so there is one place to change them. The script tells you the
+  install commands if something is missing: `cargo install --locked
+  cargo-public-api --version <pin>` and `rustup toolchain install <nightly>
+  --profile minimal` (the nightly does not become your default). It also
+  needs the audio and udev headers on Linux, like every build here. The
+  listing is the one for x86_64 Linux, the CI runner: on macOS the script builds
+  for `x86_64-apple-darwin` (same CPU types, no Linux libraries needed; it
+  tells you the one `rustup target add` command) and drops the few items that
+  exist only on macOS, so `update` gives the same text as CI. Another host
+  (Windows) takes the files from the `api-regenerated` artifact. To move to
+  a newer nightly, pick a tool release whose README supports it, change both
+  pins, run `update`, and review the diff: it should only change where the
+  tool's changelog says it does.
+- **Relation to the Semver checks job** (below). The snapshot shows *every*
+  change to the public API, growth included, and compares with the commit
+  you are based on. Semver shows only what *breaks* code that compiled against
+  the last crates.io release, and compares with that release. A new function
+  fails the snapshot job (update the snapshot) and passes the semver job; a
+  removed function fails both (update the snapshot, and add the `breaking`
+  label and fragment, or undo the break). The snapshot cannot say whether a
+  change breaks anything: that is what the semver job and the reviewer do with
+  the diff.
+
+### Semver checks
+
+The **Semver checks** job of CI compares the public API of every published
+crate with its last release on crates.io, using
+[cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks), and
+reports what a change breaks. [STABILITY.md](STABILITY.md) promises that a
+patch release (0.1.x) keeps code compiling that compiled against 0.1.0; this is
+the check behind that promise. It is a quick check: it runs on every pull
+request without the full matrix, and takes a few minutes.
+
+- **What is checked.** `ponko`, `ponko_ecs`, `ponko_ffi`, `ponko_mcp` and
+  `ponko_unity`, each with the features docs.rs builds for it
+  (`[package.metadata.docs.rs]` in its Cargo.toml; not `hotpatch` or
+  `bench-internals`, which are not API). A new publishable crate is picked up
+  by itself. `ponko_macros` is listed as not checked: the tool reads no API
+  from a proc-macro crate.
+- **What fails.** On a `release-*` branch (patch releases) and on a pull request
+  into one, every break fails the job. On `main`, breaks pile up until the next
+  minor release, so the comparison with crates.io only reports them. What
+  fails a pull request is a break *it* adds (found by comparing with the commit
+  it is based on), unless it carries the **`breaking` label** *and* a
+  [changelog fragment](changelog.d/README.md) with a `### Breaking changes`
+  entry (what changed, what to write instead, before and after code). Both
+  are needed: the label tells the reviewer, the fragment becomes the migration
+  chapter. The job also fails the other way round: the label without such a
+  fragment, whether or not the tool found a break.
+
+**Reading a failure.** Open the job summary (or the log group
+"before this change: <crate>"). Each failed lint has a name
+(`inherent_method_missing`), a description, a link to the Cargo reference,
+and a `Failed in:` list of items with the file they were in at the last release.
+
+**Acting on it:**
+
+1. *Undo the break* if it was not meant: keep the old item next to the new
+   one and mark it `#[deprecated(note = "use ...")]`, or make the type
+   `#[non_exhaustive]` before it grows. On a release branch this is the only way.
+2. *Announce it* if it is meant (on `main` only): add the fragment, add the
+   `breaking` label, and **re-run the Semver job**. Labels do not start CI
+   (see the header of ci.yml), and the job reads the labels when it runs, so
+   a re-run sees the label you added after the failure. Maintainers add the
+   label; a contributor can ask for it in the pull request.
+3. *Tool errors* (the job could not build a crate, or the tool does not read
+   this Rust version) are not breaks and no label excuses them. See the note at
+   the top of the job in ci.yml about the pinned tool and Rust versions.
+
+To run it locally, with the same pinned tool (`cargo install --locked
+cargo-semver-checks --version 0.51.0`; it needs the Linux audio and udev headers
+the other builds need):
+
+```sh
+EVENT=pull_request BASE_REF=main BASE_SHA=$(git merge-base origin/main HEAD) \
+  python3 scripts/semver-checks.py run
+```
+
+Without a pull request number it finds no label, so it fails a break that has
+no label; the output says what it would need. For one crate,
+`cargo semver-checks check-release -p ponko_unity --default-features --release-type minor`
+shows the lints directly.
+
+**What it does not catch.** The tool compares the public API as rustdoc
+describes it, with a fixed list of lints (`cargo semver-checks check-release
+--list`); a break no lint describes passes. Know these gaps when you review:
+
+- Behaviour with an unchanged signature: a different result, panic, default
+  value, ordering, timing, or determinism; what a saved world or a
+  save file contains; the fields of the control endpoint and MCP messages.
+- Many type changes in fields, parameters and return values, and tightened
+  generic bounds, are covered only where a lint exists for them.
+- Features outside the checked set (`hotpatch`, `bench-internals`) and
+  platform-specific API on other targets: only the Linux target with the
+  docs.rs features is built.
+- The C and C++ headers (`include/`) and the layout of `#[repr(C)]` types as
+  C sees them: the tool reads the Rust side of `ponko_ffi` only. The C ABI tests
+  and `scripts/check-ffi-coverage.py` are what guard the header.
+- Anything behind `#[doc(hidden)]` (such as `ponko::__ffi`), which is
+  unstable by definition, and a new crate's first release (nothing to compare).
+- Proc-macro crates (`ponko_macros`): the names and attributes of the derives
+  are not compared.
+- Dependencies: when a public type from `glam`, `wgpu` or another crate in our
+  API changes major version, our API breaks without a lint saying so.
+
 ## Architecture proposals
 
 Read [PROJECT_VISION.md](PROJECT_VISION.md), [ARCHITECTURE.md](ARCHITECTURE.md),
@@ -179,6 +378,54 @@ frame-time percentiles, memory and allocations where relevant, and identify metr
 that could not be collected. Verify correctness independently; never generalize
 one benchmark into an overall engine ranking.
 
+## Dependency audit
+
+[`deny.toml`](deny.toml) holds the policy that [cargo-deny](https://github.com/EmbarkStudios/cargo-deny)
+checks: allowed licenses, security advisories (the RustSec database), banned
+and duplicate crates, and allowed sources (crates.io only). The workflow
+`.github/workflows/deny.yml` runs it on pull requests that change `Cargo.toml`,
+`Cargo.lock` or `deny.toml`, and every Monday on `main`, where a new advisory
+opens (or updates) one issue, "Dependency audit: security advisories found by
+the weekly run", and the issue closes when the audit is clean again. The
+workflow is not part of the **CI passed** check (a path-filtered check can't be
+required), so read its result on the pull request.
+
+Run it yourself before you touch dependencies:
+
+```sh
+cargo install --locked cargo-deny --version 0.20.2   # once; CI pins the same version
+cargo deny --locked check -D warnings
+```
+
+When it fails, the output names the crate and the dependency chain that
+brought it in:
+
+- **A license is not allowed** (`licenses`). Prefer a dependency with an
+  allowed license. The list in `deny.toml` is what the C library's
+  third-party notices can carry; adding a license is a maintainer decision:
+  say in the pull request why it is acceptable for the release archives.
+  A crate that declares no license is refused by the notices too.
+- **An advisory** (`advisories`: vulnerability, unmaintained, unsound or
+  yanked). Update the dependency, with the smallest bump that fixes it
+  (`cargo update -p <crate>`; `cargo tree -i <crate>` shows who needs it), and
+  run the full checks. If nothing fixed exists, add an `ignore` entry to
+  `deny.toml` with the advisory id and a `reason`: how we reach the crate and
+  why that is acceptable, and what ends the exception. Never ignore without a
+  reason.
+- **A duplicate version** (`bans`). Align versions when you can (a newer
+  release of the parent, or `cargo update`). A duplicate a dependency we don't
+  control forces gets a `skip` entry with a `reason` naming the dependency
+  that needs the old version. Don't skip a duplicate caused by our own
+  requirements: update those.
+- **A banned crate or a source that is not crates.io.** Both are deliberate:
+  the release archives must not need a system TLS stack, and releases build
+  from crates.io alone. Change the policy only with a maintainer's agreement.
+- **A stale exception** (a warning, an error with `-D warnings`): the
+  `skip` or `ignore` entry matches nothing any more. Delete it.
+
+A weekly advisory issue is handled the same way: fix, or ignore with a reason,
+in a pull request that links the issue.
+
 ## Using coding agents
 
 Coding agents are welcome under the same contribution rules. You remain responsible
@@ -194,9 +441,23 @@ out of public submissions and external services.
 
 For maintainers. A release is a version tag; `.github/workflows/release.yml`
 does the rest, so the tag, the crates on crates.io and the CHANGELOG section
-always come from one commit. Never run `cargo publish` by hand.
+always come from one commit. Never run `cargo publish` by hand. The
+settings only a maintainer can change (Trusted Publishing on crates.io, the
+`release` environment) are listed in [One-time setup](#one-time-setup-a-maintainer-in-settings).
+There are
+three kinds of tag, all in the steps below: a release from `main`
+(`v0.2.0`), a release candidate before a minor (`v0.2.0-rc.1`, see
+[Release candidates](#release-candidates)), and a patch release from a
+release branch (`v0.1.1` on `release-0.1`, see
+[Patch releases and backports](#patch-releases-and-backports)).
 
-1. Fold the fragments in: `python3 scripts/changelog.py`. In `CHANGELOG.md`,
+1. Fold the fragments in: `python3 scripts/changelog.py --version X.Y.Z`
+   (`--dry-run` shows the result first). If any fragment breaks the API, this
+   also writes the migration chapter, `book/src/migrating-to-X.Y.md` (named
+   after the minor: `migrating-to-0.2.md` for 0.2.0 and its candidates), from
+   the same entries and lists it in `book/src/SUMMARY.md`; read it, then check
+   the book (`mdbook build book`). A patch release may not carry breaking
+   entries. In `CHANGELOG.md`,
    add a fresh empty `## [Unreleased]` heading above the folded content and
    rename the folded one to `## [X.Y.Z] - YYYY-MM-DD`; point the
    `[Unreleased]` link at `compare/vX.Y.Z...HEAD` and add `[X.Y.Z]` beside it.
@@ -210,30 +471,182 @@ always come from one commit. Never run `cargo publish` by hand.
    (it does not need the tag to exist), and `cargo publish --workspace
    --dry-run` packages and builds every crate the way crates.io will. Open the
    pull request with the `full-ci` label, let CI pass and merge it.
-4. Tag the merge commit on `main` and push the tag:
+4. Tag the merge commit on `main` (on `release-X.Y` for a patch release) and
+   push the tag:
 
    ```sh
-   git switch main && git pull
+   git switch main && git pull     # release-X.Y for a patch release
    git tag -a vX.Y.Z -m "Ponko X.Y.Z" && git push origin vX.Y.Z
    ```
 
-   The workflow is kept disabled between releases: enable it
-   (`gh workflow enable release.yml`) after the release pull request merged
-   and before pushing the tag. It builds the C library on each OS (with the
-   headers, the licenses and `THIRD-PARTY-NOTICES.txt` for every library
-   linked into it), packages every crate (`cargo publish --workspace
-   --dry-run`), creates the GitHub release from the CHANGELOG section, and
-   publishes the crates to crates.io if the `CARGO_REGISTRY_TOKEN` secret is
-   set (otherwise that job says so and can be re-run once it is). Its first
-   job, `verify`, runs `release-check.py check`, and every other job waits for
-   it: nothing is built, released or published unless the tag is `vX.Y.Z` on a
-   commit merged to `main`, every crate is at X.Y.Z, `CHANGELOG.md` has a
-   non-empty `## [X.Y.Z]` section that fits in a release body, the sub-crates
-   carry the root license files and no fragment is left over. (It does not
-   look at CI: tag a commit whose CI on `main` passed.)
-5. Redeploy the website (https://ponko.dev/), which builds the guide from
-   `main` (its own repository, `ponkoengine/ponko-website`). The API
-   reference of the release appears on docs.rs by itself.
+   That is all a release needs from you: **merge the release PR, push the
+   tag, approve the `release` environment**. The workflow is always enabled;
+   don't enable or disable it by hand. It:
+
+   1. **Verifies** (job `verify`, before anything is built):
+      `release-check.py check` (the tag is `vX.Y.Z` or `vX.Y.Z-rc.N` on a
+      commit merged to `main` or to `release-X.Y` of the tag's own minor,
+      every crate is at the tag's version, `CHANGELOG.md` has a non-empty
+      `## [X.Y.Z]` section that fits in a release body, a release whose
+      section has **Breaking changes** is a minor one with its migration
+      chapter written, listed in the book's summary and holding every entry,
+      the sub-crates carry the root license files and no fragment is left
+      over) and `release-check.py ci`: **CI must have succeeded on the tagged
+      commit**, on `main` or `release-X.Y`. A run that is still going stops
+      the release with a message saying so: wait for it and re-run the
+      `Check the tag` job. A failed run stops it too (fix it on `main`, tag
+      the fixed commit); so does a commit CI never ran on.
+   2. **Builds**: the C library on each OS (with the headers, the licenses and
+      `THIRD-PARTY-NOTICES.txt` for every library linked into it), and packages
+      every crate (`cargo publish --workspace --dry-run`).
+   3. **Waits for approval**: the `Publish` job uses the `release`
+      environment, so GitHub asks its reviewers to approve it (Actions, the
+      run, "Review deployments"). Look at the green builds, then approve.
+   4. **Publishes**, in that one job: the GitHub release from the CHANGELOG
+      section, then the crates to crates.io through Trusted Publishing (GitHub
+      OIDC trades the job's identity for a crates.io token that lasts 30
+      minutes; no registry token is stored anywhere). If crates.io isn't set
+      up yet the job stops with a message before it creates anything. After a
+      failure, re-run the job: an existing release is kept.
+   5. **Redeploys the website** (https://ponko.dev/, which builds the guide
+      from `main`; its own repository, `ponkoengine/ponko-website`) by calling
+      its Cloudflare Pages deploy hook. Without the secret below it only says
+      so; retry the deploy in Cloudflare Pages then. The API reference of the
+      release appears on docs.rs by itself.
+
+   Never run `cargo publish` by hand once the setup below is done.
+
+### One-time setup (a maintainer, in settings)
+
+The workflow can't do these; the release fails or skips a step until they
+are done. Order matters only where noted.
+
+1. **Trusted Publishing on crates.io, for each of the six crates** `ponko`,
+   `ponko_ecs`, `ponko_ffi`, `ponko_macros`, `ponko_mcp`, `ponko_unity` (and
+   every crate added to the release later): sign in to crates.io as an owner,
+   open the crate, Settings, Trusted Publishing, "Add", GitHub, and enter
+   repository owner `ponkoengine`, repository name `ponko`, workflow filename
+   `release.yml`, environment `release`. See
+   [crates.io's guide](https://crates.io/docs/trusted-publishing) and the
+   [auth action](https://github.com/rust-lang/crates-io-auth-action).
+   A crate that was never published needs its first version published by a
+   maintainer with an API token (crates.io requires that before a trusted
+   publisher can be added), and then gets its trusted publisher here. A crate
+   added to the workspace later goes through the same two steps before the
+   release that first includes it.
+2. **The `release` environment**: repository Settings, Environments, "New
+   environment", name `release` (exactly; crates.io checks it). Turn on
+   "Required reviewers" and add the maintainers who may approve a release;
+   optionally "Prevent self-review" and, under "Deployment branches and
+   tags", allow tags matching `v*`.
+3. **Remove the `CARGO_REGISTRY_TOKEN` repository secret** (Settings,
+   Secrets and variables, Actions) once a release has published through
+   Trusted Publishing, and revoke the token it held (crates.io, Account
+   Settings, API Tokens). The workflow no longer reads it; no registry token
+   should be stored anywhere.
+4. **Re-enable the workflow if it is disabled**: `gh workflow enable
+   release.yml` (once; it stays enabled now, and `verify` plus the
+   environment are the guard).
+5. **Website deploy hook (optional)**: in Cloudflare Pages, create a deploy
+   hook for the website's `main` branch and save its URL as the Actions
+   secret `PONKO_WEBSITE_DEPLOY_HOOK` (`gh secret set
+   PONKO_WEBSITE_DEPLOY_HOOK`). It is the only secret the release workflow
+   reads besides the built-in token, and the URL itself is the credential:
+   never put it in a file. Without it the `Redeploy the website` job warns
+   and the website picks the guide up at its next deployment.
+
+### Release candidates
+
+From 0.2.0 on, STABILITY.md has every minor go out as `vX.Y.0-rc.1` at least a
+week before `vX.Y.0`. A candidate is released like any release (steps 1 to 4
+above, on `main`) with these differences:
+
+- **The version is `X.Y.0-rc.N`** in the root `Cargo.toml`, every published
+  `crates/*/Cargo.toml` and the sibling requirements between them. The tag is
+  `vX.Y.0-rc.N` with N counting from 1; `release-check.py` refuses any other
+  suffix (`-beta.1`, `-rc`, `-rc.0`) and a candidate of a patch release.
+- **Nobody gets it by accident.** crates.io and Cargo treat a version with a
+  suffix as a pre-release: `cargo add ponko` and `ponko = "0.2"` never select
+  it. A tester asks for it by writing it out: `cargo add ponko@0.2.0-rc.1`.
+  The GitHub release is created with `--prerelease` (and a pre-release is
+  never the "latest" one), and its notes start with a line saying so.
+- **The CHANGELOG section may still be `[Unreleased]`.** The notes come from
+  the first of `## [X.Y.0-rc.N]`, `## [X.Y.0]` and `## [Unreleased]` that
+  exists, so a candidate needs no rename: fold the fragments in
+  (`python3 scripts/changelog.py --version X.Y.0-rc.1`), keep the heading as it
+  is and tag. The fragments still have to be folded in first, as for a
+  release. The release itself, `vX.Y.0`, needs its own `## [X.Y.0]` section.
+- **The migration chapter is needed already.** A candidate whose notes list
+  `### Breaking changes` needs `book/src/migrating-to-X.Y.md`, listed in the
+  summary and holding every breaking entry, because the people who try a
+  candidate need it most. The fold writes it, and the next candidate's fold
+  adds its new entries to the same chapter (all candidates and the release of
+  a minor share the name).
+- **A regression is fixed on `main`** through a pull request, and the next
+  candidate, `rc.2`, follows. The release is the last candidate, unchanged but
+  for the version: set `version = "X.Y.0"` and the section name, run
+  `release-check.py check vX.Y.0`, and tag it.
+
+### Patch releases and backports
+
+`main` may hold breaking changes for the next minor as soon as a minor is
+released, so patch releases (0.1.1, 0.1.2, ...) come from a branch, `release-X.Y`
+(`release-0.1`), which holds only changes that keep the API (STABILITY.md,
+"Releases"). Maintainers protect `release-*` like `main`: pull requests only,
+no force pushes. CI runs on them: pull requests into a release branch get the
+quick checks (the Semver job fails any break there), and every push to one
+gets the full matrix like `main`, and the release workflow refuses a commit whose run did not succeed.
+
+**Create the branch** from the tag of the minor's first release, once, after
+that release is out (a maintainer, once per minor; branch rules are set up for
+`release-*` already):
+
+```sh
+git fetch origin --tags
+git branch release-0.1 v0.1.0 && git push origin release-0.1
+```
+
+**Backport a fix.** A fix always lands on `main` first, through its normal
+pull request, with its `changelog.d/` fragment (a `### Fixed` or `### Added`
+entry; a `### Breaking changes` one can never be backported, and the Semver job
+will refuse it). To carry it over:
+
+1. Put the **`backport`** label on the merged pull request (or its issue)
+   saying "this belongs on the patch branch". `gh pr list --state merged
+   --label backport` lists what still waits.
+2. Cherry-pick the merge commit (one commit, since pull requests are squash
+   merged) onto a branch of the release branch. `-x` writes the original
+   commit's hash into the message:
+
+   ```sh
+   git fetch origin
+   git switch -c backport/<number>-<topic> origin/release-0.1
+   git cherry-pick -x <merge commit on main>
+   ```
+
+   The fragment comes along. On a conflict, resolve it keeping the fix and
+   nothing else, `git cherry-pick --continue`, and make sure the change still
+   compiles against the older code; `cargo test` the affected crates.
+3. Open the pull request **against `release-0.1`**, labelled `backport`, with
+   "Backport of #<number>" in its description. CI and the Semver job run on it
+   as on any pull request; merge it when they pass.
+4. Take the `backport` label off the original pull request: it has been
+   carried over.
+
+**Release it** with steps 1 to 4 above, with these changes: work from a branch
+of `release-0.1` and open the release pull request against it (fold the
+fragments, set `version = "0.1.1"`, add the `## [0.1.1]` section, run
+`release-check.py check v0.1.1`); tag the merge commit on `release-0.1`; and,
+after the release, bring its notes to `main` through a pull request: copy the
+`## [0.1.1]` section and its link line into `CHANGELOG.md` there, and delete
+the fragments the release folded in from `main`'s `changelog.d/` (a
+cherry-picked fragment has the same file name on both branches), so the next
+minor does not list the fix a second time. Never merge `release-0.1` into
+`main`.
+
+`release.yml` accepts `vX.Y.Z` on `main` as well as on the `release-X.Y` of
+its own minor: `v0.1.1` on `release-0.1` passes, on `release-0.2` or on an
+unmerged branch it does not.
 
 `.github/workflows/release-audit.yml` runs weekly (and on demand) and fails if
 a version of our crates on crates.io has no matching tag, which is what a
