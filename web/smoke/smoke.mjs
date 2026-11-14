@@ -41,10 +41,10 @@ import {
 } from "./lib.mjs";
 
 // The canvas web/index.html gives the engine (its CANVAS_ID in src/web.rs).
-const GAME_CANVAS = "canvas#ponko";
+export const GAME_CANVAS = "canvas#ponko";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const LAUNCHERS = { chromium, firefox, webkit };
+export const LAUNCHERS = { chromium, firefox, webkit };
 
 function usage(message) {
   console.error(`smoke: ${message}`);
@@ -56,6 +56,7 @@ const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
+  ".css": "text/css",
   ".wasm": "application/wasm",
   ".json": "application/json",
   ".png": "image/png",
@@ -67,7 +68,7 @@ const MIME = {
 const PROBE_PATH = "/__smoke_probe.html";
 
 /** A static file server for `root` on a free localhost port. */
-async function serve(root) {
+export async function serve(root) {
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
     if (path === PROBE_PATH) {
@@ -98,7 +99,7 @@ const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
  * on a GPU-less runner that test (a software WebGPU device presenting a
  * canvas) can leave the browser without WebGL2 for the pages that follow.
  */
-async function probe(context, url, backend) {
+export async function probe(context, url, backend) {
   const page = await context.newPage();
   try {
     await page.goto(new URL(PROBE_PATH, url).href);
@@ -173,7 +174,7 @@ async function probe(context, url, backend) {
  * of a PNG screenshot, or (without one) of the game canvas copied with
  * drawImage, which also sees WebGPU canvases that headless screenshots miss.
  */
-async function canvasStats(page, png) {
+export async function canvasStats(page, png) {
   return page.evaluate(async ([base64, selector]) => {
     let image;
     if (base64) {
@@ -260,7 +261,7 @@ async function audioSeen(page) {
 }
 
 /** Which context the game's canvas got: a second getContext of another kind returns null. */
-async function canvasBackend(page) {
+export async function canvasBackend(page) {
   return page.evaluate((selector) => {
     const canvas = document.querySelector(selector);
     if (!canvas) return "unknown";
@@ -657,4 +658,5 @@ async function main() {
   process.exit(outcome);
 }
 
-main();
+// Run as a program; web/smoke/gallery.mjs imports the helpers above.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

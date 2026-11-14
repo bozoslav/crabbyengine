@@ -36,8 +36,11 @@ HEADER = ROOT / 'include' / 'ponko.h'
 # engine's API: policy, the reference game, the tests.
 NOT_FEATURES = {
     'contributing.md': 'contribution policy',
+    'ember-hop.md': 'the second reference game is written in Rust',
     'packaging.md': 'the reference game is written in Rust',
     'render-tests.md': 'the GPU tests are written in Rust',
+    'tutorial-2d.md': 'the tutorial is written in Rust',
+    'tutorial-3d.md': 'the tutorial is written in Rust',
 }
 EXPORT = re.compile(r'extern "C" fn ([a-z0-9_]+)')
 # What is not code: Rust raw strings, ordinary strings (Rust and C), character

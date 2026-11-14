@@ -67,6 +67,11 @@ Each project has:
   (`cargo install ponko_mcp` once), and `AGENTS.md` (`CLAUDE.md` points at it)
   with the commands, the layout and a pointer to [the agents chapter](agents.md).
 
+To build a whole game from here, step by step, follow [Tutorial: a first 2D
+game](tutorial-2d.md) (a platformer with a level from a level editor, a menu
+and saves) or [Tutorial: a first 3D game](tutorial-3d.md) (a glTF scene, a
+character controller, lights and UI).
+
 The project depends on the released engine from crates.io. `--git <url>` or
 `--path <checkout>` points it at an engine repository or a local checkout
 instead (for features that are only on `main` so far, see below).
