@@ -8,10 +8,8 @@
   "Pausing only physics" section shows the pattern.
 
 ### Changed
-- Headless runs without a control endpoint honour `ctx.time.pause()`: a tick
-  made while paused runs no simulation system and doesn't advance
-  `sim_tick()`, frame systems still run with `headless_frames`, and
-  `ctx.time.step()` runs one tick. Before, they ignored the pause. With the
-  control endpoint on, a paused headless game waits for tools, as before.
+- The `Game::run_headless` docs and the guide say plainly that headless
+  runs without a control endpoint ignore `ctx.time.pause()`, and point to
+  `ctx.physics.set_paused` for holding the world in a test.
 - Ember Hop holds the built-in physics step with `ctx.physics.set_paused`
   instead of replacing it with its own system.

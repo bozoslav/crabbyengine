@@ -265,36 +265,15 @@ fn loading_a_texture_twice_gives_the_same_handle() {
 }
 
 #[test]
-fn a_paused_headless_run_holds_sim_systems_and_frame_systems_resume_it() {
-    static FRAMES: AtomicU32 = AtomicU32::new(0);
-    // A pause menu: pauses on frame 3, resumes on frame 6.
-    fn menu(ctx: &mut Ctx) {
-        FRAMES.fetch_add(1, Ordering::Relaxed);
-        match ctx.time.frame() {
-            3 => ctx.time.pause(),
-            6 => ctx.time.resume(),
-            _ => {}
-        }
+fn headless_runs_without_a_control_endpoint_ignore_pause() {
+    // Paused from the start, and paused again by a sim system: every tick runs.
+    fn pause(ctx: &mut Ctx) {
+        record_tick(ctx);
+        ctx.time.pause();
     }
-    let world = Game::new("t", 1, 1)
-        .headless_frames(true)
-        .sim_system(record_tick)
-        .system(menu)
-        .run_headless(10, |ctx| {
-            ctx.world.insert_resource(Ticks(Vec::new()));
-        });
-    assert_eq!(FRAMES.load(Ordering::Relaxed), 10, "frames go on while paused");
-    // Frames 4 to 6 have no tick.
-    assert_eq!(world.resource::<Ticks>().0, [0, 1, 2, 3, 4, 5, 6]);
-}
-
-#[test]
-fn a_paused_headless_run_without_frames_ends_and_runs_only_the_steps_asked_for() {
-    let world = Game::new("t", 1, 1).sim_system(record_tick).run_headless(5, |ctx| {
+    let world = Game::new("t", 1, 1).sim_system(pause).run_headless(5, |ctx| {
         ctx.world.insert_resource(Ticks(Vec::new()));
         ctx.time.pause();
-        ctx.time.step();
-        ctx.time.step();
     });
-    assert_eq!(world.resource::<Ticks>().0, [0, 1]);
+    assert_eq!(world.resource::<Ticks>().0, [0, 1, 2, 3, 4]);
 }

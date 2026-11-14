@@ -37,12 +37,10 @@ Game::new("Colony", 1280, 720).sim_system(ants).system(controls);
 Put controls in a frame `system`: frame systems keep running while the sim is
 paused.
 
-Headless runs honour the pause too: each tick of `run_headless(ticks, ...)`
-made while paused runs no sim system, so `sim_tick()` stays where it was.
-With [headless frames](headless.md#menus-and-the-ui-headless-frames) the
-frame systems go on, so a pause menu can resume; `ctx.time.step()` runs one
-tick. With the [control endpoint](control.md) on, a paused headless game
-waits for tools instead.
+[Headless runs](headless.md#what-runs) ignore `ctx.time.pause()` (unless
+the [control endpoint](control.md) is on, which waits for tools): every tick
+runs, so a test can play through a game that pauses behind its menus. To
+hold the world in a test too, hold only physics, as below.
 
 ### Pausing only physics
 

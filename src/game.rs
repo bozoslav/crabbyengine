@@ -1864,25 +1864,19 @@ impl Game {
     /// windowed frame of `run_systems` with one tick. The scenario's input
     /// for the tick comes first, as a window's input arrives before its
     /// frame, so the UI takes it too; its checks run after the whole frame.
-    /// Without `sim` (the game is paused) it is a frame with no tick: the
-    /// scenario waits, as it does in a paused window.
-    fn run_headless_frame(&mut self, ctx: &mut Ctx, sim: bool) {
+    fn run_headless_frame(&mut self, ctx: &mut Ctx) {
         self.ensure_schedule();
         let tick = ctx.time.sim_tick();
-        if sim {
-            self.install_input_scenario(ctx);
-            ctx.scenario_begin_tick();
-        }
+        self.install_input_scenario(ctx);
+        ctx.scenario_begin_tick();
         ctx.frame_begin_services();
         self.begin_timings(ctx);
-        if sim {
-            ctx.set_in_sim(true);
-            self.exec.run_list(&mut self.sim_systems, 0, ctx, 0, Some(tick));
-            ctx.set_sim_steps(1);
-            ctx.net.lockstep.end_tick(&ctx.world, tick);
-            ctx.advance_tick();
-            ctx.set_in_sim(false);
-        }
+        ctx.set_in_sim(true);
+        self.exec.run_list(&mut self.sim_systems, 0, ctx, 0, Some(tick));
+        ctx.set_sim_steps(1);
+        ctx.net.lockstep.end_tick(&ctx.world, tick);
+        ctx.advance_tick();
+        ctx.set_in_sim(false);
         let n_sim = self.sim_systems.len();
         let n_frame = self.systems.len();
         let n_late = self.late_systems.len();
@@ -1894,9 +1888,7 @@ impl Game {
         end_timings(ctx);
         let frame = self.systems.iter().chain(&self.late_systems).chain(&self.draw_systems);
         forget_seen_removals(ctx, self.sim_systems.iter().chain(frame));
-        if sim {
-            ctx.scenario_end_tick(tick);
-        }
+        ctx.scenario_end_tick(tick);
     }
 
     /// Adds the closure a `setup` returned as the last frame system.
@@ -2058,20 +2050,15 @@ impl Game {
     /// `setup` runs once, then `ticks` simulation ticks run (fewer if a
     /// system calls `ctx.quit()`). Only **simulation systems** run: frame
     /// systems, the closure returned by `setup`, and drawing need frames, and
-    /// there are none. Sim speed is ignored.
-    ///
-    /// [`ctx.time.pause()`](crate::time::Time::pause) is honoured: each of
-    /// the `ticks` passes made while paused is a frame without a tick, so no
-    /// sim system runs and [`sim_tick`](crate::time::Time::sim_tick) stays,
-    /// while frame systems go on with
-    /// [`headless_frames`](Self::headless_frames) (where a pause menu can
-    /// resume), and each [`ctx.time.step()`](crate::time::Time::step) runs
-    /// one tick. A tick-indexed input scenario waits while paused, as in a
-    /// window. With the [control endpoint](Self::control_endpoint) on, a
-    /// paused game instead waits for tools to step or resume it, and those
-    /// waits don't count. To hold only physics, see
-    /// [`Physics::set_paused`](crate::d2::Physics::set_paused). Textures still
-    /// load (for their sizes), but nothing is uploaded to a GPU.
+    /// there are none. Sim speed is ignored, and so is
+    /// [`ctx.time.pause()`](crate::time::Time::pause) unless the
+    /// [control endpoint](Self::control_endpoint) is on: then a paused game
+    /// waits for tools to step or resume it. Without it every tick runs, so
+    /// a game that pauses behind a menu still sees the scenario input that
+    /// closes it. To hold only physics (a pause screen whose sim systems keep
+    /// running, in a window and headless alike), use
+    /// [`Physics::set_paused`](crate::d2::Physics::set_paused). Textures
+    /// still load (for their sizes), but nothing is uploaded to a GPU.
     ///
     /// ```
     /// use ponko::prelude::*;
@@ -2199,11 +2186,7 @@ impl Game {
                     continue;
                 }
             }
-            // Without a control endpoint a paused run goes on, as a window
-            // does: each pass is a frame without a tick (frame systems run
-            // with headless frames), and `ctx.time.step()` asks for a tick.
-            let sim = control.is_some() || !ctx.time.is_paused() || ctx.take_one_step();
-            if sim && !ctx.net.lockstep.ready(ctx.time.sim_tick()) {
+            if !ctx.net.lockstep.ready(ctx.time.sim_tick()) {
                 if !ctx.net.lockstep.wait() {
                     break;
                 }
@@ -2211,15 +2194,10 @@ impl Game {
             }
             ran += 1;
             let tick_start = Instant::now();
-            ctx.begin_frame(FrameTiming {
-                fixed_steps: u32::from(sim),
-                ..timing
-            });
+            ctx.begin_frame(timing);
             ctx.frame_prepare_services();
             if self.headless_frames {
-                self.run_headless_frame(&mut ctx, sim);
-            } else if !sim {
-                // A paused tick with no frames: nothing runs.
+                self.run_headless_frame(&mut ctx);
             } else {
                 self.begin_timings(&mut ctx);
                 ctx.set_in_sim(true);
