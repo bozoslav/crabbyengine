@@ -486,6 +486,84 @@ impl Editor {
     }
 }
 
+/// What the asset browser lists: files in `assets/` that can be dragged
+/// into the scene, and the materials of the mesh files loaded so far.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct AssetList {
+    /// glTF files (`.glb`, `.gltf`).
+    pub meshes: Vec<String>,
+    /// Prefab files (`"format": "ponko-prefab"`).
+    pub prefabs: Vec<String>,
+    /// Scene files (`"format": "ponko-world"`).
+    pub scenes: Vec<String>,
+    /// (mesh file, number in it, name) of each material of a loaded mesh file.
+    pub materials: Vec<(String, usize, String)>,
+}
+
+/// Folders below `assets/` the browser looks into, at most.
+const BROWSE_DEPTH: usize = 8;
+/// Files the browser lists, at most.
+const BROWSE_FILES: usize = 4096;
+
+/// Lists the assets the editor can place (see [`AssetList`]), from every
+/// `assets/` folder found. Web builds have no folders: only materials.
+pub(crate) fn browse(ctx: &Ctx) -> AssetList {
+    let mut out = AssetList::default();
+    #[cfg(not(target_arch = "wasm32"))]
+    for root in crate::assets::asset_roots() {
+        let mut stack = vec![(root.clone(), 0usize)];
+        while let Some((dir, depth)) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else { continue };
+                if name.starts_with('.') {
+                    continue;
+                }
+                if path.is_dir() {
+                    if depth < BROWSE_DEPTH {
+                        stack.push((path, depth + 1));
+                    }
+                    continue;
+                }
+                let Ok(rel) = path.strip_prefix(&root) else { continue };
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                match path.extension().and_then(|e| e.to_str()) {
+                    Some("glb" | "gltf") => out.meshes.push(rel),
+                    Some("json") => {
+                        // The format is named at the top of the file.
+                        let mut head = [0u8; 256];
+                        let n = std::fs::File::open(&path)
+                            .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
+                            .unwrap_or(0);
+                        let head = String::from_utf8_lossy(&head[..n]);
+                        if head.contains(crate::scene::PREFAB_FORMAT) {
+                            out.prefabs.push(rel);
+                        } else if head.contains("\"ponko-world\"") {
+                            out.scenes.push(rel);
+                        }
+                    }
+                    _ => {}
+                }
+                if out.meshes.len() + out.prefabs.len() + out.scenes.len() >= BROWSE_FILES {
+                    break;
+                }
+            }
+        }
+    }
+    for list in [&mut out.meshes, &mut out.prefabs, &mut out.scenes] {
+        list.sort();
+        list.dedup();
+    }
+    #[cfg(feature = "3d")]
+    if let Some(names) = ctx.world.get_resource::<crate::reflect::MaterialNames>() {
+        out.materials = names.list();
+    }
+    let _ = ctx;
+    out
+}
+
 /// A 3D offset for [`Editor::duplicate_many`] (zero in builds without 3D).
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Offset3(#[cfg(feature = "3d")] pub glam::Vec3);
@@ -1006,7 +1084,10 @@ mod tests {
             ed.redo(&mut ctx).unwrap(); // Hp on the new one
             let now = ed.resolve(a);
             assert!(ctx.world.is_alive(now));
-            assert_eq!((at(&ctx, now), ctx.world.get::<Hp>(now)), (vec2(3.0, 4.0), Some(&Hp(2.0))));
+            assert_eq!(
+                (at(&ctx, now), ctx.world.get::<Hp>(now)),
+                (vec2(3.0, 4.0), Some(&Hp(2.0)))
+            );
         }
     }
 
@@ -1060,9 +1141,7 @@ mod tests {
         let root = ctx.world.spawn((Transform2D::default(),));
         let part = ctx.world.spawn((Transform2D::default(),));
         ctx.world.insert(root, crate::scene::PrefabParts(vec![part]));
-        let attached = ctx
-            .world
-            .spawn((Transform2D::default(), crate::d2::Attached::to(part)));
+        let attached = ctx.world.spawn((Transform2D::default(), crate::d2::Attached::to(part)));
         let loose = ctx.world.spawn((Transform2D::default(),));
         let nodes = hierarchy(&ctx.world);
         let order: Vec<Entity> = nodes.iter().map(|n| n.entity).collect();
@@ -1103,7 +1182,10 @@ mod tests {
         assert!(ctx.editor.can_undo(), "Stop is the editor's own load");
         let save = ctx.world.save();
         ctx.replace_world(&save).unwrap();
-        assert!(!ctx.edit(|ed, ctx| ed.undo(ctx)).unwrap(), "the steps named the old world");
+        assert!(
+            !ctx.edit(|ed, ctx| ed.undo(ctx)).unwrap(),
+            "the steps named the old world"
+        );
     }
 
     #[cfg(feature = "3d")]
@@ -1121,10 +1203,16 @@ mod tests {
         assert!((offset.position - vec3(0.0, 2.0, 0.0)).length() < 1e-5);
         ed.set_transforms3d(&mut ctx, &[(parent, T3::at(vec3(5.0, 0.0, 0.0)))]);
         let c = ctx.world.get::<T3>(child).unwrap().position;
-        assert!((c - vec3(5.0, 2.0, 0.0)).length() < 1e-5, "{c}: the child follows at once");
+        assert!(
+            (c - vec3(5.0, 2.0, 0.0)).length() < 1e-5,
+            "{c}: the child follows at once"
+        );
         ed.set_transforms3d(&mut ctx, &[(child, T3::at(vec3(5.0, 3.0, 1.0)))]);
         let offset = ctx.world.get::<Attached3D>(child).unwrap().offset;
-        assert!((offset.position - vec3(0.0, 3.0, 1.0)).length() < 1e-5, "the offset moved, not the link");
+        assert!(
+            (offset.position - vec3(0.0, 3.0, 1.0)).length() < 1e-5,
+            "the offset moved, not the link"
+        );
         ed.undo(&mut ctx).unwrap();
         ed.undo(&mut ctx).unwrap();
         let c = ctx.world.get::<T3>(child).unwrap().position;
