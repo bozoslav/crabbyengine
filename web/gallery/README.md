@@ -48,9 +48,6 @@ Then build it (`--only my_example`) and check it in a headless browser (below).
 `node --test web/gallery` checks the manifest: every example exists, asks for
 its required features, and sits on one line.
 
-**To add:** the second reference game (issue #374) goes in with one line here
-when it lands, like `coin_dash`.
-
 ### Which examples are in, and why the rest aren't
 
 Every example with a window that shows something on its own or with a
