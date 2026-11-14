@@ -20,6 +20,12 @@ mod gpu3d;
 mod lights;
 #[cfg(feature = "window")]
 mod lights2d;
+#[cfg(all(
+    feature = "window",
+    not(target_arch = "wasm32"),
+    any(test, feature = "bench-internals")
+))]
+mod lights2d_bench;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod mips;
 #[cfg(not(feature = "window"))]
@@ -71,6 +77,14 @@ pub use gpu3d::{
     LodBench, LodFrame, LodMemory, LodPath, LodScene, RecordBench, RecordScene, SceneBench, SceneFrame, SceneKind,
     SceneSetup,
 };
+/// Unstable 2D lighting benchmark driver for `ponko_bench` (feature `bench-internals`).
+#[doc(hidden)]
+#[cfg(all(
+    feature = "window",
+    not(target_arch = "wasm32"),
+    any(test, feature = "bench-internals")
+))]
+pub use lights2d_bench::{Lights2DBench, Lights2DFrame, Lights2DScene};
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
 pub use pipeline_stats::PipelineStats;
