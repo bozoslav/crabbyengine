@@ -416,7 +416,9 @@ pub fn encode(rgba: &[u8], width: u32, height: u32, rule: Rule) -> Result<Encode
     // A normal map's X goes to red, green and blue, its Y to alpha:
     // Basis Universal's layout for two-channel textures (BC5 takes red and alpha).
     let pixels: std::borrow::Cow<[u8]> = if normal {
-        rgba.chunks_exact(4)
+        rgba.as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[0], p[0], p[1]])
             .collect::<Vec<u8>>()
             .into()

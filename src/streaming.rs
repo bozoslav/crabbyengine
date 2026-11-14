@@ -260,7 +260,7 @@ pub(crate) fn block_pyramid(image: &crate::compressed::CompressedImage, max: u32
         }
         if w.max(h) <= max || i + 1 == image.levels.len() {
             let mut level = Level::new(w, h, Vec::new());
-            level.blocks = Some(image.from_level(i));
+            level.blocks = Some(image.starting_at_level(i));
             levels.push(level);
         }
         if w.max(h) <= STAND_IN {

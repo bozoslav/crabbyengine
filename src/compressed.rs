@@ -169,7 +169,7 @@ impl CompressedImage {
 
     /// The same texture from mip level `first` down: a smaller resolution
     /// for streaming, with its own mipmaps.
-    pub(crate) fn from_level(&self, first: usize) -> CompressedImage {
+    pub(crate) fn starting_at_level(&self, first: usize) -> CompressedImage {
         let (width, height) = self.level_size(first);
         CompressedImage {
             width,
@@ -596,7 +596,7 @@ pub(crate) fn decode_blocks(format: BlockFormat, width: u32, height: u32, blocks
 /// Fills blue with a two-channel normal map's Z (from X in red and Y in
 /// green), and makes alpha opaque.
 fn rebuild_normal_z(rgba: &mut [u8]) {
-    for p in rgba.chunks_exact_mut(4) {
+    for p in rgba.as_chunks_mut::<4>().0 {
         let x = f32::from(p[0]) / 127.5 - 1.0;
         let y = f32::from(p[1]) / 127.5 - 1.0;
         let z = (1.0 - x * x - y * y).max(0.0).sqrt();
@@ -1116,7 +1116,7 @@ pub(crate) mod tests {
             levels: levels.clone(),
             normal: NormalChannels::Rgb,
         };
-        let half = image.from_level(1);
+        let half = image.starting_at_level(1);
         assert_eq!((half.width, half.height), (8, 4));
         assert_eq!(half.levels, levels[1..]);
     }

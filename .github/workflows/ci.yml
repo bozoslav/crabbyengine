@@ -282,6 +282,11 @@ jobs:
           - name: accessibility feature
             scope: -p ponko
             args: --features accessibility
+          # KTX2/DDS block-compressed textures with the Basis Universal
+          # transcoder (C++), and the GPU test and benchmark of them.
+          - name: compressed textures
+            scope: -p ponko
+            args: --features 3d,basis-universal
           # The offscreen rendering benchmarks (`render/scene`, `render/record`).
           - name: benchmarks with the renderer
             scope: -p ponko_bench
@@ -588,6 +593,15 @@ jobs:
         run: |
           cargo test -p ponko --no-fail-fast --features image-formats --test image_formats
           cargo test -p ponko --no-fail-fast --features image-formats --lib assets::
+      # KTX2 and DDS textures: loading, streaming, arrays and hot reload,
+      # and transcoding Basis Universal UASTC (without the feature, a KTX2
+      # file's error names it: the no-default-features run above).
+      - name: Tests, engine with compressed textures
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test -p ponko --no-fail-fast --features 3d,compressed-textures --test compressed_textures
+          cargo test -p ponko --no-fail-fast --features 3d,basis-universal --test compressed_textures
+          cargo test -p ponko --no-fail-fast --features 3d,basis-universal --lib compressed::
       # Systems called through subsecond's jump table (no dx attached) behave the same.
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
@@ -915,6 +929,9 @@ jobs:
       - run: cargo check -p ponko --target wasm32-unknown-unknown --features image-formats
       # The 3D examples (the 3D browser smoke fixture among them) need the feature.
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
+      # Compressed textures build for the browser; Basis Universal (C++) is
+      # left out there, so UASTC files are an Unsupported error on the web.
+      - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d,basis-universal
       # The accessibility feature has no web adapter: it must build and do nothing.
       - run: cargo check -p ponko --target wasm32-unknown-unknown --features accessibility
       - name: Find the wasm-bindgen version in Cargo.lock
