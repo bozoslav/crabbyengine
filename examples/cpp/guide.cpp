@@ -1319,6 +1319,43 @@ static void storage_keeps_files_between_runs() {
     if (!refused) std::abort();
 }
 
+namespace old_saves {
+// ANCHOR: save_migrations
+// The game's component as it is now, at save version 2.
+struct Health { float now; float max; };   // max in hearts; version 1 saved hit points
+
+static void setup(ponko::world& world) {
+    // Named, so saves don't depend on the C++ namespace.
+    world.reflect<Health>("Health", {ponko::field("now", &Health::now), ponko::field("max", &Health::max)});
+    world.set_save_version(2);                       // before the first load
+    world.migration(0)                               // 0 -> 1: saves from before versions
+        .rename_component("Hp", "Health");
+    world.migration(1)                               // 1 -> 2
+        .rename_field("Health", "current", "now")
+        .convert_field("Health", "max", [](const std::string& points) {
+            return std::to_string(std::ceil(std::stod(points) / 4.0));   // 4 points a heart
+        });
+}
+// ANCHOR_END: save_migrations
+
+static void old_saves_still_load() {
+    ponko::world world;
+    setup(world);
+    world.load(R"({"format": "ponko-world", "version": 1,
+                   "entities": [{"entity": 0, "components": {"Hp": {"current": 3, "max": 13}}}]})");
+    std::size_t found = 0;
+    world.each([&](const Health& h) { found += h.now == 3.0f && h.max == 4.0f ? 1 : 0; });
+    if (found != 1 || world.save().find("\"game_version\":2") == std::string::npos) { std::fprintf(stderr, "migration\n"); std::abort(); }
+    bool refused = false;
+    try {
+        world.load(R"({"format": "ponko-world", "version": 1, "game_version": 3, "entities": []})");
+    } catch (const ponko::error& e) {
+        refused = e.kind() == PONKO_ERROR_UNSUPPORTED;
+    }
+    if (!refused) { std::fprintf(stderr, "a newer save loaded\n"); std::abort(); }
+}
+} // namespace old_saves
+
 // ANCHOR: prefab_tree
 static void carts(ponko::ctx& ctx) {
     // A cart: its body (the root), two wheels, a driver and the driver's hat.
@@ -3292,6 +3329,7 @@ int main() {
     the_dive_adds_one_effect();
     the_beach_has_five_palms();
     storage_keeps_files_between_runs();
+    old_saves::old_saves_still_load();
     a_cart_comes_and_goes_whole();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();
