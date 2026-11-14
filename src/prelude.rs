@@ -5,19 +5,19 @@
 //! [`Query`], [`Commands`]), math (`Vec2`, `Vec3`, `Vec4`, `Quat`, `Mat4` and their
 //! constructors), input ([`Key`], [`MouseButton`]), [`Color`], textures,
 //! sounds and fonts, [`Rect`], [`Random`], [`Events`], reflection, and the
-//! common transforms and cameras under their descriptive names
-//! (`Transform2D`, `Camera2D`, `Transform3D`, `Camera3D`).
+//! [`d2`] and `d3` modules, so code for both dimensions can write
+//! `d2::Transform` next to `d3::Transform`.
 //!
 //! Add `use ponko::d2::*;` or `use ponko::d3::*;` for one dimension's names
-//! (`Transform`, `RigidBody`, `Physics`, `Hit`, ...), and import service
-//! modules (`ponko::net`, `ponko::perf`, `ponko::render`, `ponko::anim`, ...)
-//! where a file needs them. Every type is documented at one path, its home:
-//! its topic module (`ponko::render::Material`, `ponko::anim::Animator`), or
-//! `d2`/`d3` for the types that have none (`d3::Camera`, `d3::PointLight`).
-//! `d2`/`d3` re-export the topic modules' types, so the glob and the topic
-//! path name the same type; the prelude re-exports a few of each. Short
-//! generic names a game is likely to define itself (`Pose`, `Material`, `Job`, `Motion`, `Shader`, `Joint`, ...) stay
-//! out of the prelude.
+//! (`Transform`, `Camera`, `RigidBody`, `Physics`, `Hit`, ...), and import
+//! service modules (`ponko::net`, `ponko::perf`, `ponko::render`,
+//! `ponko::anim`, ...) where a file needs them. Every item has one path, its
+//! home: its topic module (`ponko::render::Material`, `ponko::anim::Animator`),
+//! or `d2`/`d3` for the types named after a dimension (`d3::Camera`,
+//! `d3::PointLight`). The prelude re-exports a few common ones as the same
+//! items. Short generic names a game is likely to define itself (`Pose`,
+//! `Material`, `Job`, `Motion`, `Shader`, `Joint`, ...) stay out of the
+//! prelude.
 //!
 //! ```
 //! use ponko::prelude::*;
