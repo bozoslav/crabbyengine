@@ -10,3 +10,13 @@ Median instructions per operation. ▲ slower, ▼ faster than the commit below 
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | `81d54c080c` | 2026-11-14 | 32,992 | 20,623 | 880,015 | 2,881,635 | 1,609,416 | 119,815 | 4,626,155 |
 
+# Releases
+
+## github-ubuntu-24.04-x64
+
+Median instructions per operation. ▲ slower, ▼ faster than the release below it, beyond the larger of 1.0% and 2 times the spread.
+
+| release | date | `ecs/iter/10k` | `ecs/query-filtered/10k` | `ecs/get/10k` | `ecs/spawn/10k` | `ecs/despawn/10k` | `sim/tick/10k` | `render/collect/10k` |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `v0.1.0` | 2026-11-13 | 32,992 | 20,624 | 880,015 | 2,881,635 | 1,609,416 | 119,703 | 4,706,259 |
+
