@@ -20,9 +20,11 @@
 //! needs a special case. Positional sound needs the `3d` feature.
 
 #[cfg(feature = "3d")]
-mod spatial;
+pub(crate) mod spatial;
 #[cfg(feature = "3d")]
-pub use spatial::*;
+pub use spatial::AudioRolloff;
+#[cfg(feature = "3d")]
+pub(crate) use spatial::*;
 
 /// A loaded sound. Cheap to copy. Get one from
 /// [`Ctx::load_sound`](crate::ctx::Ctx::load_sound) or

@@ -119,6 +119,7 @@ pub mod assets;
 pub mod attach;
 pub mod audio;
 pub mod camera;
+mod camera2d;
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 pub mod collision;
 pub mod color;
@@ -185,6 +186,7 @@ mod logs;
 mod nav3d;
 pub mod net;
 pub mod particles;
+mod particles2d;
 
 mod jobs;
 pub mod perf;

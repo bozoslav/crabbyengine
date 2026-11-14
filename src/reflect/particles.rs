@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::{Reflected, Registry, SchemaSource, TextureNames, check, remove};
 use crate::color::Color;
-use crate::particles::{
+use crate::particles2d::{
     ParticleCurve, ParticleEmitter2D, ParticleGradient, ParticleSettings2D, ParticleShape2D, ParticleSpace,
 };
 use crate::render::BlendMode;

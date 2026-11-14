@@ -67,7 +67,7 @@ pub use crate::three::Trail3D as Trail;
 pub use crate::three::Transform3D as Transform;
 
 #[doc(inline)]
-pub use crate::audio::{
+pub use crate::audio::spatial::{
     AudioListener3D as AudioListener, AudioSettings3D as AudioSettings, AudioSource3D as AudioSource,
 };
 #[cfg(feature = "navmesh")]
@@ -82,5 +82,5 @@ pub use crate::physics3d::{
     Physics3D as Physics, QueryFilter3D as QueryFilter, Ragdoll3D as Ragdoll, RagdollBone, RigidBody3D as RigidBody,
     Shape3D as Shape, TerrainCollider, Vehicle3D as Vehicle, Velocity3D as Velocity, Wheel3D as Wheel,
 };
-#[doc(no_inline)]
-pub use crate::ui::UiPanel3D as UiPanel;
+#[doc(inline)]
+pub use crate::ui::panel3d::UiPanel3D as UiPanel;

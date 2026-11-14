@@ -5,8 +5,8 @@ use ponko_ecs::{Commands, World};
 
 use crate::assets;
 use crate::audio::Audio;
-use crate::camera::Camera2D;
 use crate::camera::Rect;
+use crate::camera2d::Camera2D;
 use crate::color::Color;
 use crate::ecs::{Sprite, Transform2D};
 use crate::events::Events;

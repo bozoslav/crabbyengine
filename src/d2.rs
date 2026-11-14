@@ -20,12 +20,12 @@
 //! so the million-entity paths (spatial grid, flow fields) stay as fast as
 //! before. Turn it on with [`Game::physics`](crate::game::Game::physics);
 //! the step is [`systems::step_physics`](crate::systems::step_physics).
-#[doc(no_inline)]
-pub use crate::camera::Camera2D as Camera;
+#[doc(inline)]
+pub use crate::camera2d::Camera2D as Camera;
 #[doc(inline)]
 pub use crate::ecs::{Sprite, Transform2D as Transform};
-#[doc(no_inline)]
-pub use crate::particles::{
+#[doc(inline)]
+pub use crate::particles2d::{
     ParticleEmitter2D as ParticleEmitter, ParticleSettings2D as ParticleSettings, ParticleShape2D as ParticleShape,
 };
 #[cfg(feature = "physics")]

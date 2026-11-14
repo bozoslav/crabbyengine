@@ -60,14 +60,14 @@
   ```rust
   use ponko::d3::*;
   let desc = MaterialDesc::color(Color::WHITE);
-  let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0));
+  let cube = MeshData::cube(1.0);
   ```
   After:
   ```rust
   use ponko::d3::*;
   use ponko::render::{MaterialDesc, MeshData};
   let desc = MaterialDesc::color(Color::WHITE);
-  let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0));
+  let cube = MeshData::cube(1.0);
   ```
 - `ponko::d2` no longer re-exports the types of topic modules: tile maps and
   levels (`TileMap`, `Tileset`, `Level`, `LevelOptions`, `LevelObject`,
@@ -92,4 +92,42 @@
   use ponko::{attach::Attached, tilemap::TileMap};
   let child = (Transform::default(), Attached::to(parent));
   let map = TileMap::new(tiles, 32, 32);
+  ```
+- Types of one dimension are no longer also public in a topic module under
+  their suffixed name: `camera::Camera2D` is `d2::Camera`,
+  `particles::{ParticleEmitter2D, ParticleSettings2D, ParticleShape2D}` are
+  `d2::{ParticleEmitter, ParticleSettings, ParticleShape}`,
+  `audio::{AudioSource3D, AudioListener3D, AudioSettings3D}` are
+  `d3::{AudioSource, AudioListener, AudioSettings}` and `ui::UiPanel3D` is
+  `d3::UiPanel`. `camera` keeps `Rect` and `camera_controls`, `particles`
+  the curves shared by both dimensions, `audio` keeps `AudioRolloff`.
+  Saved component names don't change.
+  Instead: use the `d2`/`d3` names (the prelude's `d2` and `d3` modules
+  reach them).
+  Before:
+  ```rust
+  use ponko::audio::AudioSource3D;
+  use ponko::particles::ParticleEmitter2D;
+  ```
+  After:
+  ```rust
+  use ponko::d2::ParticleEmitter;
+  use ponko::d3::AudioSource;
+  ```
+- `ponko::nav` holds only the navigation-mesh baking types (`NavBakeSettings`,
+  `NavBakeError`, `NavSource`): its copies of `d3::{NavMesh, NavAgent,
+  NavObstacle}`, of `flow::{NavGrid, FlowField}` and of
+  `systems::step_navmesh3d` are gone. `ponko::anim` no longer re-exports
+  `sheet::{Animation, SpriteSheet}` and `systems::animate_sprites`.
+  Instead: use the paths named here.
+  Before:
+  ```rust
+  use ponko::nav::{NavAgent, NavGrid, NavMesh};
+  use ponko::anim::Animation;
+  ```
+  After:
+  ```rust
+  use ponko::d3::{NavAgent, NavMesh};
+  use ponko::flow::NavGrid;
+  use ponko::sheet::Animation;
   ```

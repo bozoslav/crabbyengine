@@ -127,7 +127,7 @@ mod access_native;
 mod build;
 mod immediate;
 #[cfg(feature = "3d")]
-mod panel3d;
+pub(crate) mod panel3d;
 mod retained;
 mod retained_draw;
 pub use access::{
@@ -137,8 +137,6 @@ pub use access::{
 pub use access_native::UiAccessAdapter;
 pub use build::{UiBuilder, UiLayout, UiTheme};
 pub use immediate::UiImmediate;
-#[cfg(feature = "3d")]
-pub use panel3d::UiPanel3D;
 pub use retained::{Ui, UiEvent, UiId, UiInput, UiPaint, UiTextAlign, UiWidget};
 
 /// Unstable: the [Taffy](https://docs.rs/taffy/0.15.1/taffy/) layout crate
