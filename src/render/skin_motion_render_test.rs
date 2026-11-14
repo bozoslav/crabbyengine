@@ -428,7 +428,7 @@ fn swing_error(keep_poses: bool) -> Option<(f32, f32)> {
     let settled = settled.draw();
     support::keep_image(&settled);
     let (mut sum, mut worst) = (0.0f32, 0.0f32);
-    for (a, b) in last.rgba.chunks_exact(4).zip(settled.rgba.chunks_exact(4)) {
+    for (a, b) in last.rgba.as_chunks::<4>().0.iter().zip(settled.rgba.as_chunks::<4>().0) {
         let d = (f32::from(a[0]) - f32::from(b[0])).abs() / 255.0;
         sum += d;
         worst = worst.max(d);
