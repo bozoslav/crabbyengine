@@ -9,6 +9,7 @@ Rust is the primary API; C and C++ bindings support native integrations.
 No large visual editor is required.
 
 [**Website**](https://ponko.dev/) · [**Guide**](https://ponko.dev/guide/) ·
+[**Play the examples**](https://ponkoengine.github.io/ponko/) ·
 [**API**](https://docs.rs/ponko/) · [**Project vision**](PROJECT_VISION.md) ·
 [**Roadmap**](ROADMAP.md) · [**Architecture**](ARCHITECTURE.md) ·
 [**Contribute**](CONTRIBUTING.md)
@@ -174,6 +175,10 @@ acceptance suites remain development goals. See
 and [profiling](book/src/profiling.md).
 
 ## Examples
+
+Most of them run in a browser too, without installing anything: the
+[web gallery](https://ponkoengine.github.io/ponko/) has the newest release's
+examples, each with what it shows and its source.
 
 ```sh
 git clone https://github.com/ponkoengine/ponko

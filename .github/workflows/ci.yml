@@ -917,6 +917,9 @@ jobs:
       - run: cargo check -p ponko --target wasm32-unknown-unknown --features image-formats
       # The 3D examples (the 3D browser smoke fixture among them) need the feature.
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
+      # The tutorials' games (book/src/tutorial-*.md) need physics; they must
+      # keep building for the browser.
+      - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features physics,physics3d --example tutorial_2d --example tutorial_3d
       # The accessibility feature has no web adapter: it must build and do nothing.
       - run: cargo check -p ponko --target wasm32-unknown-unknown --features accessibility
       - name: Find the wasm-bindgen version in Cargo.lock
@@ -937,7 +940,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: npm ci --prefix web/smoke --no-audit --no-fund
-      - run: node --test web/smoke/*.test.mjs
+      - run: node --test web/smoke/*.test.mjs web/gallery/*.test.mjs
 
   # Runs web builds in headless browsers (web/smoke/README.md): startup,
   # asset fetch, fixed-step progress, a click, a nonblank canvas, and the
@@ -982,10 +985,9 @@ jobs:
           npm ci --prefix web/smoke --no-audit --no-fund
           bash scripts/ci-retry.sh node web/smoke/node_modules/playwright-core/cli.js install --with-deps chromium firefox webkit
       - name: Runner tests
-        run: node --test web/smoke/*.test.mjs
-      # The platformer (examples/ember_hop) is only built here: it publishes
-      # its state like coin_dash, and its browser run comes with the web
-      # gallery (#373).
+        run: node --test web/smoke/*.test.mjs web/gallery/*.test.mjs
+      # The platformer (examples/ember_hop) publishes its state like
+      # coin_dash; its browser run is the web gallery's page check.
       - name: Build the fixtures (2D, 3D with --features 3d, the complete games)
         run: |
           web/build.sh web_smoke
@@ -1057,6 +1059,14 @@ jobs:
           for case in missing-asset panic stall; do
             node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --case "$case"
           done
+      # The web gallery (web/gallery/README.md) with two of its examples and a
+      # demo that needs WebGPU, which must show its message on WebGL2: the
+      # pages, their loader and the check the release runs on every example.
+      - name: Web gallery pages (Chromium, WebGL2)
+        if: ${{ !cancelled() }}
+        run: |
+          node web/gallery/build.mjs --only sprites,3d,compute
+          node web/smoke/gallery.mjs --browser chromium --backend webgl2
       # Every run, with what it asked for, what ran, the adapter the engine
       # reported and why anything was unsupported (also in the artifact).
       - name: Summary of every run
