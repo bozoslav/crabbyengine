@@ -32,9 +32,9 @@ const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 /// `Input` through `SimLast` run once per fixed tick (also headlessly).
 /// `Frame` through `Draw` run once per rendered frame. Systems in the same
 /// phase run in registration order, applying deferred commands after each
-/// one. With [`Game::parallel_systems`] on, view systems that are next to
-/// each other in a phase and don't conflict share a batch and may run at
-/// the same time; see [`SchedulePlan`](crate::schedule::SchedulePlan). A
+/// one. With [`Game::parallel_systems`] on, view systems of a phase that
+/// don't conflict share a batch and may run at the same time; see
+/// [`SchedulePlan`](crate::schedule::SchedulePlan). A
 /// phase always ends before the next one starts.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -810,8 +810,8 @@ impl Game {
     ///   the declaration is enforced by the view, not trusted. View systems
     ///   run one at a time, in order, unless
     ///   [`parallel_systems`](Self::parallel_systems) is on: then the ones
-    ///   that are next to each other in a phase and don't conflict share a
-    ///   batch and may run at the same time;
+    ///   of a phase that don't conflict share a batch and may run at the
+    ///   same time;
     /// - either of them with options: [`named`](IntoSystem::named),
     ///   [`every`](IntoSystem::every) (an interval in ticks) and
     ///   [`access`](IntoSystem::access) (what it reads and writes).
@@ -911,13 +911,15 @@ impl Game {
     /// run at the same time, on several threads. Off by default: then every
     /// system runs alone, in order, as always.
     ///
-    /// On, the systems of each phase are cut into stages
+    /// On, the systems of each phase are put into stages
     /// ([`schedule_plan`](Self::schedule_plan) shows them): view systems
-    /// that are next to each other and whose declarations don't conflict
-    /// share a **batch**; every other system (all `&mut Ctx` systems, and
-    /// view systems that hold sound, a camera, a physics world or
-    /// networking) is a stage of its own. Stages run in order, so systems
-    /// that conflict keep their registration order. Commands recorded in a
+    /// whose declarations don't conflict share a **batch**; every other
+    /// system (all `&mut Ctx` systems, and view systems that hold sound, a
+    /// camera, a physics world or networking) is a stage of its own, which
+    /// no system moves across. Between those, a view system goes to the
+    /// earliest stage after every system whose work it must see, so it may
+    /// run ahead of systems registered before it that it doesn't interact
+    /// with. Systems that conflict keep their registration order. Commands recorded in a
     /// batch are applied, and events sent in it become visible, when the
     /// batch ends, in registration order; the conflict rules make sure no
     /// system could have seen them earlier anyway.
@@ -1041,10 +1043,13 @@ impl Game {
         self
     }
 
-    /// Says that `second` must see `first`'s work: the two never share a
-    /// batch, even if their declarations don't conflict (for an order that
-    /// the declarations can't show, such as two systems that talk through
-    /// a file or a channel). `first` must already run before `second`: an
+    /// Says that `second` must see `first`'s work: `second` runs in a later
+    /// stage than `first`, never in the same batch or ahead of it, even if
+    /// their declarations don't conflict (for an order that the
+    /// declarations can't show, such as two systems that talk through a
+    /// file or a channel). With the scheduler on, a view system that
+    /// doesn't interact with the systems registered before it may run
+    /// ahead of them; this is how to stop that for a pair. `first` must already run before `second`: an
     /// earlier phase, or registered first in the same phase. Ids come from
     /// [`add_system`](Self::add_system); a removed system's pair is ignored.
     ///

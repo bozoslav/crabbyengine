@@ -1313,6 +1313,23 @@ impl serde_core::ser::Serialize for ponko::diagnostics::ArchetypeDiagnostics
 pub fn ponko::diagnostics::ArchetypeDiagnostics::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for ponko::diagnostics::ArchetypeDiagnostics
 pub fn ponko::diagnostics::ArchetypeDiagnostics::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[non_exhaustive] pub struct ponko::diagnostics::BlockedDiagnostics
+pub ponko::diagnostics::BlockedDiagnostics::after: core::option::Option<usize>
+pub ponko::diagnostics::BlockedDiagnostics::boundary: alloc::string::String
+pub ponko::diagnostics::BlockedDiagnostics::conflicts: alloc::vec::Vec<ponko::diagnostics::ConflictDiagnostics>
+impl core::clone::Clone for ponko::diagnostics::BlockedDiagnostics
+pub fn ponko::diagnostics::BlockedDiagnostics::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::diagnostics::BlockedDiagnostics
+pub fn ponko::diagnostics::BlockedDiagnostics::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::diagnostics::BlockedDiagnostics
+pub fn ponko::diagnostics::BlockedDiagnostics::default() -> Self
+impl core::fmt::Debug for ponko::diagnostics::BlockedDiagnostics
+pub fn ponko::diagnostics::BlockedDiagnostics::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::diagnostics::BlockedDiagnostics
+impl serde_core::ser::Serialize for ponko::diagnostics::BlockedDiagnostics
+pub fn ponko::diagnostics::BlockedDiagnostics::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for ponko::diagnostics::BlockedDiagnostics where ponko::diagnostics::BlockedDiagnostics: core::default::Default
+pub fn ponko::diagnostics::BlockedDiagnostics::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 #[non_exhaustive] pub struct ponko::diagnostics::ComponentDiagnostics
 pub ponko::diagnostics::ComponentDiagnostics::align: usize
 pub ponko::diagnostics::ComponentDiagnostics::archetypes: usize
@@ -1464,6 +1481,7 @@ pub ponko::diagnostics::StageDiagnostics::index: usize
 pub ponko::diagnostics::StageDiagnostics::inline_runs: u64
 pub ponko::diagnostics::StageDiagnostics::len: usize
 pub ponko::diagnostics::StageDiagnostics::phase: alloc::string::String
+pub ponko::diagnostics::StageDiagnostics::systems: alloc::vec::Vec<usize>
 pub ponko::diagnostics::StageDiagnostics::threaded_runs: u64
 pub ponko::diagnostics::StageDiagnostics::usual_work_us: f32
 impl core::clone::Clone for ponko::diagnostics::StageDiagnostics
@@ -1483,6 +1501,7 @@ pub fn ponko::diagnostics::StageDiagnostics::deserialize<__D>(__D) -> core::resu
 pub ponko::diagnostics::SystemDiagnostics::access: alloc::string::String
 pub ponko::diagnostics::SystemDiagnostics::alone: core::option::Option<ponko::diagnostics::AloneDiagnostics>
 pub ponko::diagnostics::SystemDiagnostics::avg_ms: f32
+pub ponko::diagnostics::SystemDiagnostics::blocked: core::option::Option<ponko::diagnostics::BlockedDiagnostics>
 pub ponko::diagnostics::SystemDiagnostics::declared: core::option::Option<ponko::diagnostics::AccessDiagnostics>
 pub ponko::diagnostics::SystemDiagnostics::every: u32
 pub ponko::diagnostics::SystemDiagnostics::last_ms: f32
@@ -6106,6 +6125,9 @@ pub ponko::schedule::Boundary::Barrier
 pub ponko::schedule::Boundary::Conflict
 pub ponko::schedule::Boundary::Conflict::conflicts: alloc::vec::Vec<ponko::access::AccessConflict>
 pub ponko::schedule::Boundary::Conflict::with: usize
+pub ponko::schedule::Boundary::KeepsOrder
+pub ponko::schedule::Boundary::KeepsOrder::after: usize
+pub ponko::schedule::Boundary::KeepsOrder::conflicts: alloc::vec::Vec<ponko::access::AccessConflict>
 pub ponko::schedule::Boundary::Order
 pub ponko::schedule::Boundary::Order::after: usize
 pub ponko::schedule::Boundary::Phase
@@ -6134,6 +6156,7 @@ impl core::marker::Copy for ponko::schedule::OrderError
 impl core::marker::StructuralPartialEq for ponko::schedule::OrderError
 #[non_exhaustive] pub struct ponko::schedule::PlannedSystem
 pub ponko::schedule::PlannedSystem::alone: core::option::Option<ponko::schedule::Alone>
+pub ponko::schedule::PlannedSystem::boundary: ponko::schedule::Boundary
 pub ponko::schedule::PlannedSystem::name: &'static str
 pub ponko::schedule::PlannedSystem::phase: ponko::game::Phase
 impl core::clone::Clone for ponko::schedule::PlannedSystem
@@ -6160,10 +6183,11 @@ pub fn ponko::schedule::SchedulePlan::fmt(&self, &mut core::fmt::Formatter<'_>) 
 pub ponko::schedule::Stage::boundary: ponko::schedule::Boundary
 pub ponko::schedule::Stage::first: usize
 pub ponko::schedule::Stage::len: usize
+pub ponko::schedule::Stage::members: alloc::vec::Vec<usize>
 pub ponko::schedule::Stage::phase: ponko::game::Phase
 impl ponko::schedule::Stage
 pub fn ponko::schedule::Stage::is_batch(&self) -> bool
-pub fn ponko::schedule::Stage::systems(&self) -> core::ops::range::Range<usize>
+pub fn ponko::schedule::Stage::systems(&self) -> &[usize]
 impl core::clone::Clone for ponko::schedule::Stage
 pub fn ponko::schedule::Stage::clone(&self) -> Self
 impl core::fmt::Debug for ponko::schedule::Stage
