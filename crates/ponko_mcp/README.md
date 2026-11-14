@@ -18,6 +18,8 @@ when they run with `PONKO_CONTROL=1` (the `launch` tool sets it).
 
 - Working with AI agents: <https://ponko.dev/guide/agents.html>
 - The control endpoint and its security: <https://ponko.dev/guide/control.html>
+- The agent acceptance suite (tasks done through these tools, scored):
+  <https://ponko.dev/guide/agents.html#the-agent-acceptance-suite>
 
 The tool names and parameters are a stable contract; see
 [STABILITY.md](https://github.com/ponkoengine/ponko/blob/main/STABILITY.md).

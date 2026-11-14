@@ -20,6 +20,9 @@ homepage.workspace = true
 [[bin]]
 name = "ponko"
 path = "src/main.rs"
+# Its docs would overwrite the engine library's (both are `ponko`) in a
+# workspace `cargo doc`; the command has no API, its guide is the book.
+doc = false
 
 # A few small dependencies, never the engine, so `cargo install ponko_cli`
 # stays quick. `ponko package` reads `cargo metadata` (JSON: serde_json,

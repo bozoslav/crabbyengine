@@ -1,0 +1,19 @@
+[
+  { "name": "nothing", "why": "no change: the player is far too slow", "steps": [],
+    "fails": ["flag reached in time"] },
+  { "name": "too fast", "why": "reaches the flag, but in under 1.5 seconds",
+    "steps": [
+      { "write": "assets/settings.json", "text": "{\n  \"speed\": 900\n}\n" },
+      { "until": { "call": "get_resource", "args": { "resource": "Settings" }, "pointer": "/speed", "equals": 900.0 },
+        "each": { "call": "run_ticks", "args": { "ticks": 1 } } }
+    ],
+    "fails": ["flag reached in time"] },
+  { "name": "live only", "why": "fixes the running game, not the file: the next start is slow again",
+    "steps": [
+      { "call": "set_resource", "args": { "resource": "Settings", "value": { "speed": 340.0 } } }
+    ],
+    "fails": ["game uses the file's speed"] },
+  { "name": "broken file", "why": "the file no longer parses",
+    "steps": [ { "write": "assets/settings.json", "text": "{ speed: 340 }\n" } ],
+    "fails": ["settings file is valid", "game uses the file's speed", "flag reached in time"] }
+]
