@@ -40,7 +40,9 @@ directory and link the library.
 into `target/release/`; the headers are in `include/`. Build both from the same
 commit. The release libraries have `ponko_ffi`'s default features; turn other
 optional parts on with `ponko_ffi`'s features (for example
-`--features accessibility`).
+`--features accessibility`, or `--features compressed-textures` for
+`.ktx2` files through `ponko_ctx_load_texture`, see
+[Compressed textures](drawing.md#compressed-textures)).
 
 ## Build and run the examples
 

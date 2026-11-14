@@ -602,6 +602,7 @@ jobs:
           cargo test -p ponko --no-fail-fast --features 3d,compressed-textures --test compressed_textures
           cargo test -p ponko --no-fail-fast --features 3d,basis-universal --test compressed_textures
           cargo test -p ponko --no-fail-fast --features 3d,basis-universal --lib compressed::
+          cargo test -p ponko_ffi --no-fail-fast --features compressed-textures --test compressed_textures
       # Systems called through subsecond's jump table (no dx attached) behave the same.
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}

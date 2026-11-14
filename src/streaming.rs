@@ -973,7 +973,9 @@ impl crate::gfx::Graphics {
 
     /// Nothing to choose without the `compressed-textures` feature.
     #[cfg(not(feature = "compressed-textures"))]
-    fn texture_formats(&self) -> TextureFormats {}
+    fn texture_formats(&self) -> TextureFormats {
+        TextureFormats
+    }
 
     /// Starts decoding texture `name` on a worker, and queues its uploads.
     fn start_texture_decode(&mut self, name: &str) {
@@ -1164,7 +1166,8 @@ impl crate::gfx::Graphics {
 #[cfg(feature = "compressed-textures")]
 type TextureFormats = crate::compressed::GpuFormats;
 #[cfg(not(feature = "compressed-textures"))]
-type TextureFormats = ();
+#[derive(Clone, Copy)]
+struct TextureFormats;
 
 /// Decodes texture `name` from `bytes` into its resolutions: a KTX2 or DDS
 /// file in a block format `gpu` samples into its own mip levels.
@@ -1195,7 +1198,7 @@ fn decode_texture(
         });
     }
     #[cfg(not(feature = "compressed-textures"))]
-    let () = gpu;
+    let TextureFormats = gpu;
     let image = assets::decode_image(&bytes, name, &what)?;
     Ok((origin, pyramid(image, max)))
 }

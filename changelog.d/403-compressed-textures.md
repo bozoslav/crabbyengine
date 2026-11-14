@@ -18,3 +18,5 @@
   (`color`, `linear`, `normal`, `mask`, `ui`, `skip`) from a
   `textures.json` next to them; `--check` fails when a file is missing or
   stale.
+- The C library has the same `compressed-textures` and `basis-universal`
+  features; `ponko_ctx_load_texture` then loads `.ktx2` files.
