@@ -10,7 +10,7 @@
 //!    a test can write the `Intent` itself and get the same game every run.
 //! 3. [`Presentation`]: the camera that follows the hero, the glows, the
 //!    fade between levels and the text. None of it changes the game.
-//! 4. [`Sound`]: the music, started once.
+//! 4. [`Music`]: the music, started once.
 //!
 //! What the engine does for it: levels are Tiled maps (`assets/ember_hop/levels`)
 //! spawned with `ctx.spawn_level_with`, which makes the tile layers, the

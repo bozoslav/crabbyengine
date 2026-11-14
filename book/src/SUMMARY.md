@@ -39,6 +39,7 @@
 - [Changing code while the game runs](hot-patching.md)
 - [Headless runs and testing](headless.md)
 - [A complete game, packaged](packaging.md)
+- [Ember Hop: a platformer, start to finish](ember-hop.md)
 - [Web builds: games in the browser](web.md)
 - [C and C++](c-cpp.md)
 - [Naming and compatibility](naming.md)
