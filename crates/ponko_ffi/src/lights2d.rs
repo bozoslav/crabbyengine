@@ -414,7 +414,8 @@ pub unsafe extern "C" fn ponko_ctx_occluder2d_edge_count(
 /// `on`, `color` (sRGB) lights every place and turns 2D lighting on; off
 /// (the default), the ambient is black wherever 2D lights exist.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_ambient_light2d(std::ptr::null_mut(), false, Default::default()) } as u32, 1);
+/// let night = ponko_ffi::PonkoColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_ambient_light2d(std::ptr::null_mut(), false, night) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -432,7 +433,7 @@ pub unsafe extern "C" fn ponko_ctx_set_ambient_light2d(ctx: *mut PonkoCtx, on: b
 /// The 2D ambient light: whether one is set, and its color (left alone
 /// when none is).
 /// ```
-/// let (mut on, mut color) = (false, Default::default());
+/// let (mut on, mut color) = (false, ponko_ffi::PonkoColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 });
 /// assert_eq!(unsafe { ponko_ffi::ponko_ctx_ambient_light2d(std::ptr::null_mut(), &mut on, &mut color) } as u32, 1);
 /// ```
 /// # Safety
@@ -462,7 +463,8 @@ pub unsafe extern "C" fn ponko_ctx_ambient_light2d(
 /// map `normal_map` (Rust `Graphics::set_normal_map`); `has_normal_map`
 /// false takes it away. Same size and layout as `texture`, green up.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_normal_map(std::ptr::null_mut(), Default::default(), false, Default::default()) } as u32, 1);
+/// let t = ponko_ffi::PonkoTexture { id: 0, width: 0, height: 0 };
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_normal_map(std::ptr::null_mut(), t, false, t) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
@@ -488,8 +490,9 @@ pub unsafe extern "C" fn ponko_ctx_set_normal_map(
 /// `texture`'s normal map: whether it has one, and which (left alone
 /// without one).
 /// ```
-/// let (mut has, mut n) = (false, Default::default());
-/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_normal_map(std::ptr::null_mut(), Default::default(), &mut has, &mut n) } as u32, 1);
+/// let t = ponko_ffi::PonkoTexture { id: 0, width: 0, height: 0 };
+/// let (mut has, mut n) = (false, t);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_normal_map(std::ptr::null_mut(), t, &mut has, &mut n) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; outputs writable.
