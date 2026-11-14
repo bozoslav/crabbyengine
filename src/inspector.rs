@@ -5,8 +5,11 @@
 //! and resources, and picking units in the world.
 //!
 //! Paused, it's an editor ([`crate::editor`]): select, drag, duplicate and
-//! delete entities in the world, add and remove components, undo, place
-//! prefabs, save and load scenes, and Play / Stop.
+//! delete entities in the world, add and remove components, undo and redo,
+//! place prefabs, save and load scenes, and Play / Stop. A hierarchy panel
+//! parents entities by drag and drop, and an asset browser drags meshes,
+//! prefabs and materials into the world. In 3D, a click picks along the
+//! mouse ray and a gizmo moves, turns and scales the selection.
 //!
 //! Built with the `inspector` feature; turned on per game with
 //! [`Game::inspector`](crate::game::Game::inspector) (on in debug builds). While
@@ -25,6 +28,9 @@ use crate::d2::Sprite;
 use crate::d2::Transform as Transform2D;
 use crate::reflect::short_name;
 use crate::{camera::Rect, ctx::Ctx, reflect::WorldReflect};
+
+#[path = "inspector_scene.rs"]
+mod scene;
 
 /// Environment variable that turns the inspector on (`1`) or off (`0`),
 /// overriding [`Game::inspector`](crate::game::Game::inspector).
@@ -92,6 +98,10 @@ impl Drop for Overlay {
 #[derive(Default)]
 pub(crate) struct Panels {
     pub selected: Option<Entity>,
+    /// The rest of a multi-selection (Shift-click), without `selected`.
+    others: Vec<Entity>,
+    /// Hierarchy, asset browser, and the 3D view's gizmo and camera.
+    scene: scene::SceneEdit,
     /// Only list entities with this component.
     filter: Option<ComponentId>,
     /// The next click in the world selects the entity under it.
@@ -141,19 +151,21 @@ impl Panels {
         self.reflected.clear();
         self.reflected
             .extend(ctx.world.reflected_components().into_iter().map(str::to_owned));
-        if let Some(at) = self.pick_at.take() {
-            self.picking = false;
-            if let Some(e) = pick(ctx, at) {
-                self.selected = Some(e);
-            }
-        }
         if self.scene_loads != ctx.scene_loads {
             self.scene_loads = ctx.scene_loads;
-            self.selected = None;
+            self.select(None, false);
             self.drag = None;
+            self.scene.forget_drag();
         }
         if self.selected.is_some_and(|e| !ctx.world.is_alive(e)) {
             self.selected = None;
+        }
+        self.scene_frame(ctx);
+        if let Some(at) = self.pick_at.take() {
+            self.picking = false;
+            if let Some(e) = self.pick_any(ctx, at) {
+                self.select(Some(e), false);
+            }
         }
 
         egui::Panel::right("ponko-inspector")
@@ -174,6 +186,12 @@ impl Panels {
                         self.entity(ui, ctx, e);
                         ui.separator();
                     }
+                    CollapsingHeader::new("Hierarchy")
+                        .default_open(ctx.world.len() <= scene::HIERARCHY_OPEN_UP_TO)
+                        .show(ui, |ui| self.hierarchy_panel(ui, ctx));
+                    CollapsingHeader::new("Assets")
+                        .default_open(false)
+                        .show(ui, |ui| self.asset_browser(ui, ctx));
                     CollapsingHeader::new("Entities")
                         .default_open(true)
                         .show(ui, |ui| self.entity_list(ui, ctx));
@@ -188,12 +206,23 @@ impl Panels {
                 });
             });
         if self.editing {
-            self.world_input(ui, ctx);
+            if self.scene.active3d {
+                self.world_input_3d(ui, ctx);
+            } else {
+                self.world_input(ui, ctx);
+            }
             self.shortcuts(ui, ctx);
-        } else if let Some(drag) = self.drag.take() {
-            Self::end_drag(ctx, drag);
+        } else {
+            if let Some(drag) = self.drag.take() {
+                Self::end_drag(ctx, drag);
+            }
+            self.end_gizmo_drag(ctx);
         }
-        self.highlight(ui, ctx);
+        if self.scene.active3d {
+            self.highlight_3d(ui, ctx);
+        } else {
+            self.highlight(ui, ctx);
+        }
     }
 
     /// Shows an edit's error, or forgets the last one.
@@ -231,6 +260,9 @@ impl Panels {
             )
         });
         let Some(pos) = pos else { return };
+        if self.drop_asset(ui, ctx, pos) {
+            return;
+        }
         if !ui.ctx().is_pointer_over_egui() {
             if pan != egui::Vec2::ZERO {
                 ctx.camera.position -= Vec2::new(pan.x, pan.y) / ctx.camera.zoom;
@@ -239,7 +271,8 @@ impl Panels {
                 ctx.camera.zoom_at(pos, 1.1f32.powf(scroll / 50.0));
             }
             if pressed {
-                self.click(ctx, pos, shift);
+                let add = ui.input(|i| i.modifiers.command);
+                self.click(ctx, pos, shift, add);
             }
         }
         if let Some(drag) = &mut self.drag {
@@ -258,19 +291,25 @@ impl Panels {
     }
 
     /// A click in the world at window point `at`.
-    fn click(&mut self, ctx: &mut Ctx, at: Vec2, keep_placing: bool) {
+    fn click(&mut self, ctx: &mut Ctx, at: Vec2, keep_placing: bool, add: bool) {
         let world_at = ctx.camera.screen_to_world(at);
         if let Some(path) = self.placing.clone() {
             let placed = ctx.edit(|ed, ctx| ed.spawn_prefab(ctx, &path, world_at));
             if let Some(e) = self.report(placed) {
-                self.selected = Some(e);
+                self.select(Some(e), false);
             }
             if !keep_placing {
                 self.placing = None;
             }
             return;
         }
-        self.selected = pick(ctx, at);
+        let picked = pick(ctx, at);
+        // Ctrl-click (or Shift-click on an entity) adds to the selection.
+        let add = add || (keep_placing && picked.is_some());
+        self.select(picked, add);
+        if add {
+            return;
+        }
         if let Some(e) = self.selected
             && let Some(t) = ctx.world.get::<Transform2D>(e)
         {
@@ -292,16 +331,23 @@ impl Panels {
         }
     }
 
-    /// Keys while paused: Delete, Ctrl+D (duplicate), Ctrl+Z (undo), Esc.
+    /// Keys while paused: Delete, Ctrl+D (duplicate), Ctrl+Z (undo),
+    /// Ctrl+Shift+Z or Ctrl+Y (redo), Esc; in 3D also W, E, R and F.
     fn shortcuts(&mut self, ui: &Ui, ctx: &mut Ctx) {
         if ui.ctx().egui_wants_keyboard_input() {
             return;
+        }
+        if self.selection_keys(ui, ctx) {
+            return;
+        }
+        if self.scene.active3d {
+            self.keys_3d(ui, ctx);
         }
         let (delete, duplicate, undo, escape) = ui.input(|i| {
             (
                 i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace),
                 i.modifiers.command && i.key_pressed(Key::D),
-                i.modifiers.command && i.key_pressed(Key::Z),
+                i.modifiers.command && !i.modifiers.shift && i.key_pressed(Key::Z),
                 i.key_pressed(Key::Escape),
             )
         });
@@ -315,11 +361,11 @@ impl Panels {
         if delete {
             let deleted = ctx.edit(|ed, ctx| ed.delete(ctx, e));
             self.report(deleted);
-            self.selected = None;
+            self.select(None, false);
         } else if duplicate {
             let copy = ctx.edit(|ed, ctx| ed.duplicate(ctx, e, DUPLICATE_OFFSET));
             if let Some(copy) = self.report(copy) {
-                self.selected = Some(copy);
+                self.select(Some(copy), false);
             }
         }
     }
@@ -341,37 +387,38 @@ impl Panels {
                 .clicked()
             {
                 let at = ctx.camera.center();
-                self.selected = Some(ctx.edit(|ed, ctx| ed.spawn_empty(ctx, at)));
+                let e = ctx.edit(|ed, ctx| ed.spawn_empty(ctx, at));
+                self.select(Some(e), false);
             }
         });
+        self.scene_tools(ui, ctx);
         if !self.editing {
             ui.label(RichText::new("Pause to edit in the world").weak());
         } else {
             ui.label(
-                RichText::new("Click selects, drag moves, right-drag pans, wheel zooms. Del, Ctrl+D, Ctrl+Z.").weak(),
+                RichText::new(
+                    "Click selects (Ctrl adds), drag moves, right-drag pans, wheel zooms. Del, Ctrl+D, Ctrl+Z.",
+                )
+                .weak(),
             );
         }
 
         ui.horizontal(|ui| {
             ui.label("Scene");
+            // An empty field means the scene loaded last, else the default.
+            let current = ctx.scene_file.clone().unwrap_or_else(|| DEFAULT_SCENE.to_owned());
             ui.add(
                 TextEdit::singleline(&mut self.scene_path)
-                    .hint_text(DEFAULT_SCENE)
+                    .hint_text(&current)
                     .desired_width(150.0),
             );
             let path = if self.scene_path.is_empty() {
-                DEFAULT_SCENE
+                current
             } else {
-                &self.scene_path
-            }
-            .to_owned();
+                self.scene_path.clone()
+            };
             if ui.button("Save").clicked() {
-                let saved = ctx
-                    .assets
-                    .save_scene(&ctx.world, &path)
-                    .map_err(String::from)
-                    .map(|()| format!("saved {path}"));
-                self.status = self.report(saved);
+                self.save_scene(ctx, &path);
             }
             if ui
                 .button("Load")
@@ -381,7 +428,7 @@ impl Panels {
                 let loaded = ctx.load_scene(&path).map(|()| format!("loaded {path}"));
                 if let Some(done) = self.report(loaded) {
                     self.status = Some(done);
-                    self.selected = None;
+                    self.select(None, false);
                 }
             }
         });
@@ -409,6 +456,7 @@ impl Panels {
                     .map(|()| format!("saved {path}"));
                 self.status = self.report(saved);
                 self.prefabs = None;
+                self.scene.forget_assets();
             }
         });
         let prefabs = self
@@ -593,14 +641,15 @@ impl Panels {
                         continue;
                     };
                     let text = format!("{e:?}  {}", components_label(world, e));
-                    let selected = self.selected == Some(e);
+                    let selected = self.selected == Some(e) || self.others.contains(&e);
                     if ui.selectable_label(selected, text).clicked() {
                         clicked = Some(e);
                     }
                 }
             });
         if clicked.is_some() {
-            self.selected = clicked;
+            let add = ui.input(|i| i.modifiers.shift || i.modifiers.command);
+            self.select(clicked, add);
         }
     }
 
@@ -616,13 +665,13 @@ impl Panels {
             if ui.button("Duplicate").on_hover_text("Ctrl+D").clicked() {
                 let copy = ctx.edit(|ed, ctx| ed.duplicate(ctx, e, DUPLICATE_OFFSET));
                 if let Some(copy) = self.report(copy) {
-                    self.selected = Some(copy);
+                    self.select(Some(copy), false);
                 }
             }
             if ui.button("Despawn").on_hover_text("Del").clicked() {
                 let deleted = ctx.edit(|ed, ctx| ed.delete(ctx, e));
                 self.report(deleted);
-                self.selected = None;
+                self.select(None, false);
             }
         });
         if self.selected.is_none() {
@@ -674,20 +723,23 @@ impl Panels {
         }
     }
 
-    /// A ring around the selected entity, in the world.
+    /// A ring around each selected entity, in the world (the primary one
+    /// stronger).
     fn highlight(&self, ui: &Ui, ctx: &Ctx) {
-        let Some(e) = self.selected else { return };
-        let Some(t) = ctx.world.get::<Transform2D>(e) else {
-            return;
-        };
-        let at = ctx.camera.world_to_screen(t.position);
         let painter = ui.ctx().layer_painter(egui::LayerId::new(
             egui::Order::Background,
             egui::Id::unique("inspector-highlight"),
         ));
-        let center = egui::pos2(at.x, at.y);
-        painter.circle_stroke(center, 14.0, Stroke::new(2.0, Color32::from_rgb(255, 200, 40)));
-        painter.circle_stroke(center, 16.0, Stroke::new(1.0, Color32::from_black_alpha(160)));
+        for (i, e) in self.selection().into_iter().enumerate() {
+            let Some(t) = ctx.world.get::<Transform2D>(e) else {
+                continue;
+            };
+            let at = ctx.camera.world_to_screen(t.position);
+            let center = egui::pos2(at.x, at.y);
+            let width = if i == 0 { 2.0 } else { 1.0 };
+            painter.circle_stroke(center, 14.0, Stroke::new(width, Color32::from_rgb(255, 200, 40)));
+            painter.circle_stroke(center, 16.0, Stroke::new(1.0, Color32::from_black_alpha(160)));
+        }
     }
 }
 
@@ -954,7 +1006,7 @@ impl Inspector {
         match code {
             KeyCode::Delete | KeyCode::Backspace | KeyCode::Escape => true,
             KeyCode::KeyD | KeyCode::KeyZ => command,
-            _ => false,
+            _ => self.panels.scene.claims_key(code, command),
         }
     }
 

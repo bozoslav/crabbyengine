@@ -37,6 +37,7 @@ enum Undo {
     /// between them (attachments, prefab parts) are kept.
     Despawned(Vec<(Entity, Value)>),
     /// Several changes made as one (a drag of several entities).
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     Group(Vec<Undo>),
 }
 
@@ -205,6 +206,7 @@ impl Editor {
     /// Records, as one step, that these components were as given before a
     /// change made directly (a gizmo drag of several entities). Components
     /// that didn't change are left out; nothing is recorded if none did.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub fn changed(&mut self, world: &ponko_ecs::World, before: Before) {
         let steps: Vec<Undo> = before
             .0
@@ -588,6 +590,7 @@ impl Offset3 {
 
 /// Components as they were before a direct change, for
 /// [`Editor::changed`]: (entity, component, value or `None` if absent).
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
 #[derive(Default, Debug)]
 pub(crate) struct Before(Vec<(Entity, String, Option<Value>)>);
 
@@ -680,8 +683,10 @@ pub(crate) enum Link {
     /// `Attached3D`.
     Attached3D,
     /// `AttachToJoint`: on a joint of the parent's skeleton.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     Joint,
     /// `SkinOf`: posed by the parent's skeleton.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     Skin,
     /// One of the parent's `PrefabParts`, not attached to anything.
     PrefabPart,
@@ -736,7 +741,7 @@ fn part_owners(world: &ponko_ecs::World) -> HashMap<Entity, Entity> {
 }
 
 /// The entities above `e`, nearest first (stops at a loop).
-fn ancestors(world: &ponko_ecs::World, e: Entity) -> Vec<Entity> {
+pub(crate) fn ancestors(world: &ponko_ecs::World, e: Entity) -> Vec<Entity> {
     let owners = part_owners(world);
     let mut out = Vec::new();
     let mut at = e;

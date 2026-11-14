@@ -7,10 +7,12 @@ use serde_json::{Value, json};
 
 use super::{entity_param, param, str_param};
 use crate::ctx::Ctx;
+#[cfg(feature = "3d")]
 use crate::reflect::WorldReflect;
 use ponko_ecs::Entity;
 
 /// Why the 3D methods are refused in builds without 3D.
+#[cfg_attr(feature = "3d", allow(dead_code))]
 pub(super) const NO_3D: &str = "3D scene editing needs the `3d` feature";
 
 /// The `entities` param: a list of entity ids, all alive.
@@ -514,6 +516,7 @@ mod tests {
     }
 
     /// A file name in the engine's assets/ unique to this test run.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     fn temp_asset(name: &str) -> (String, std::path::PathBuf) {
         let path = format!("ponko-test-{name}-{}.json", std::process::id());
         let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
