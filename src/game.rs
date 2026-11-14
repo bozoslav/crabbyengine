@@ -165,17 +165,26 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
             let path = std::any::type_name_of_val(&crate::systems::$name);
             [path, path]
         }};
+        // Public in `systems`, defined in its topic module: listed under the
+        // topic module's path, the name it had before `systems` was its
+        // only public path, so names in plans and `remove_system` stay.
+        ($module:ident :: $name:ident) => {
+            [
+                std::any::type_name_of_val(&crate::$module::$name),
+                std::any::type_name_of_val(&crate::systems::$name),
+            ]
+        };
     }
     #[cfg(feature = "3d")]
     let one = |name: &'static str| [name, name];
     let entries = [
-        (builtin!(animate_sprites), Systems::ANIMATE_SPRITES),
-        (builtin!(draw_tilemaps), Systems::DRAW_TILEMAPS),
+        (builtin!(sheet::animate_sprites), Systems::ANIMATE_SPRITES),
+        (builtin!(tilemap::draw_tilemaps), Systems::DRAW_TILEMAPS),
         (builtin!(draw_sprites), Systems::DRAW_SPRITES),
         (builtin!(draw_particles), Systems::DRAW_PARTICLES),
         (builtin!(update_particles), Systems::UPDATE_PARTICLES),
-        (builtin!(rebuild_spatial_grid), Systems::REBUILD_SPATIAL_GRID),
-        (builtin!(follow_attachments), Systems::FOLLOW_ATTACHMENTS),
+        (builtin!(spatial::rebuild_spatial_grid), Systems::REBUILD_SPATIAL_GRID),
+        (builtin!(attach::follow_attachments), Systems::FOLLOW_ATTACHMENTS),
         #[cfg(feature = "physics")]
         (builtin!(step_physics), Systems::PHYSICS),
         #[cfg(feature = "physics3d")]
@@ -2186,7 +2195,7 @@ impl Game {
     /// grow); the report covers the next `ticks` ticks (at most the last
     /// 50,000). Call it from a test or a CI job; see [`PerfReport::assert_within`](crate::perf::PerfReport::assert_within).
     ///
-    /// Counting allocations needs [`CountingAllocator`](crate::alloc_count::CountingAllocator)
+    /// Counting allocations needs [`CountingAllocator`](crate::perf::CountingAllocator)
     /// as the global allocator.
     ///
     /// ```

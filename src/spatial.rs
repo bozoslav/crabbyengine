@@ -493,11 +493,9 @@ impl Buckets {
 
 pub(crate) const SPATIAL_SORT_EVERY: u64 = 32;
 
-/// Built-in system added by [`Game::spatial_grid`](crate::game::Game::spatial_grid):
-/// re-indexes every [`Transform2D`] entity into `ctx.spatial`. It runs first
-/// in every simulation tick, and every [`SpatialGrid::SORT_EVERY`] ticks it also
-/// sorts entities by cell so neighbor queries stay cache-friendly.
-pub fn rebuild_spatial_grid(ctx: &mut Ctx) {
+/// The system behind [`systems::rebuild_spatial_grid`](crate::systems::rebuild_spatial_grid); it keeps
+/// this path for its name (`ponko::spatial::rebuild_spatial_grid`).
+pub(crate) fn rebuild_spatial_grid(ctx: &mut Ctx) {
     if ctx.time.sim_tick().is_multiple_of(SPATIAL_SORT_EVERY) {
         let cell = ctx.spatial.cell_size();
         ctx.world.sort_by::<Transform2D>(|t| spatial_key(t.position, cell));

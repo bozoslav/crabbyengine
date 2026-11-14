@@ -482,9 +482,11 @@ impl Perf {
 }
 
 // Detailed reports live beside the frame service.
+#[doc(inline)]
 pub use crate::alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
 pub use crate::perf_report::*;
 pub use crate::profiler::{FrameStats, GpuPass};
+#[doc(inline)]
 pub use crate::scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
 
 /// Named profiling scopes.

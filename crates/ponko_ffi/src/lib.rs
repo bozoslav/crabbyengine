@@ -113,7 +113,7 @@ pub use animator::*;
 /// the engine makes. A Rust program that links this crate as a library and
 /// wants its own allocator should depend on the engine instead.
 #[global_allocator]
-static ALLOCATOR: ponko::alloc_count::CountingAllocator = ponko::alloc_count::CountingAllocator;
+static ALLOCATOR: ponko::perf::CountingAllocator = ponko::perf::CountingAllocator;
 
 pub use action_lookup::*;
 pub use asset_sources::*;

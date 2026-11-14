@@ -64,7 +64,7 @@
 //! - `gamepad` (default): gamepads through gilrs; without it
 //!   `Input::gamepads` is always empty. On Linux it needs libudev headers.
 //! - `profiling`: per-system scopes for `puffin_viewer`. (Not needed for
-//!   [`profile_scope!`], [`Perf::report`](perf::Perf::report) or [`CountingAllocator`](alloc_count::CountingAllocator), which
+//!   [`profile_scope!`], [`Perf::report`](perf::Perf::report) or [`CountingAllocator`](ponko::perf::CountingAllocator), which
 //!   are always built in and cost one atomic load while profiling is off.)
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
@@ -113,7 +113,7 @@ pub mod terrain;
 
 pub mod access;
 pub mod actions;
-pub mod alloc_count;
+mod alloc_count;
 mod asset_cache;
 pub mod assets;
 pub mod attach;
@@ -206,7 +206,7 @@ pub mod scenario;
 mod scene;
 pub mod schedule;
 mod schema;
-pub mod scope;
+mod scope;
 pub mod sheet;
 pub mod spatial;
 mod sprite_material;

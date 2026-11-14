@@ -131,3 +131,33 @@
   use ponko::flow::NavGrid;
   use ponko::sheet::Animation;
   ```
+- `ponko::alloc_count` and `ponko::scope` are private: their items were
+  also in `ponko::perf`, which is now their one path (`CountingAllocator`,
+  `AllocCounts`, `alloc_counts`, `note_allocation`, `ProfileScope`,
+  `ScopeGuard`, `ScopeTiming`, `scope_named`).
+  Instead: import them from `ponko::perf`.
+  Before:
+  ```rust
+  #[global_allocator]
+  static ALLOC: ponko::alloc_count::CountingAllocator = ponko::alloc_count::CountingAllocator;
+  ```
+  After:
+  ```rust
+  #[global_allocator]
+  static ALLOC: ponko::perf::CountingAllocator = ponko::perf::CountingAllocator;
+  ```
+- The built-in systems are public only in `ponko::systems`:
+  `spatial::rebuild_spatial_grid`, `sheet::animate_sprites`,
+  `tilemap::draw_tilemaps`, `attach::follow_attachments` and
+  `net::apply_net_poses` are gone from their topic modules (the names the
+  built-ins are listed under, such as `ponko::tilemap::draw_tilemaps` in
+  plans and for `ponko_game_remove_system`, don't change).
+  Instead: use `ponko::systems::<name>`.
+  Before:
+  ```rust
+  game.add(Phase::SimLast, ponko::attach::follow_attachments)
+  ```
+  After:
+  ```rust
+  game.add(Phase::SimLast, ponko::systems::follow_attachments)
+  ```

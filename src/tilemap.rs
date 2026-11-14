@@ -282,15 +282,9 @@ impl TileMap {
     }
 }
 
-/// Built-in system: draws the visible tiles of every [`TileMap`].
-/// [`Game`](crate::game::Game) runs it every frame, before
-/// [`draw_sprites`](crate::systems::draw_sprites).
-///
-/// ```no_run
-/// # use ponko::prelude::*;
-/// Game::new("No maps here", 800, 600).remove(Systems::DRAW_TILEMAPS).run(|_| {});
-/// ```
-pub fn draw_tilemaps(ctx: &mut Ctx) {
+/// The system behind [`systems::draw_tilemaps`](crate::systems::draw_tilemaps); it keeps
+/// this path for its name (`ponko::tilemap::draw_tilemaps`).
+pub(crate) fn draw_tilemaps(ctx: &mut Ctx) {
     let view = ctx.camera.visible_rect();
     let center = (view.min + view.max) * 0.5;
     let time = ctx.time.elapsed();

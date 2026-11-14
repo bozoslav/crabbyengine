@@ -79,10 +79,9 @@ struct Scratch {
     placed: Vec<Option<(Vec2, f32)>>,
 }
 
-/// Moves every entity with [`Attached`] to its place next to the entity it
-/// follows, on all cores, and despawns those whose entity is gone. Add it as
-/// a simulation system after the ones that move things.
-pub fn follow_attachments(ctx: &mut Ctx) {
+/// The system behind [`systems::follow_attachments`](crate::systems::follow_attachments); it keeps
+/// this path for its name (`ponko::attach::follow_attachments`).
+pub(crate) fn follow_attachments(ctx: &mut Ctx) {
     let mut s = ctx.world.remove_resource::<Scratch>().unwrap_or_default();
     // Same entities, in the same order, as the writing query below.
     ctx.world
