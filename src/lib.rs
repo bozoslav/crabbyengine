@@ -43,8 +43,8 @@
 //! - [`audio`]: sound effects and music.
 //! - `physics` and `physics3d` (features of the same names): rigid bodies,
 //!   colliders and queries; [`nav`] for pathfinding and navigation meshes.
-//! - [`assets`], [`stream`] and [`streaming`]: asset files, background jobs
-//!   and streaming big worlds, and GPU asset loading with budgets.
+//! - [`assets`] and [`streaming`]: asset files, GPU asset loading with
+//!   budgets, background jobs and streaming big worlds.
 //! - [`net`]: networking: lockstep, messages and snapshot replication.
 //! - [`perf`], [`diagnostics`] and [`render`]: frame profiling, ECS
 //!   diagnostics and renderer statistics.
@@ -207,7 +207,18 @@ pub mod sheet;
 pub mod spatial;
 mod sprite_material;
 pub mod storage;
-pub mod stream;
+mod jobs;
+/// Deprecated: [`Job`](crate::streaming::Job) and `CellStreamer` moved to
+/// [`streaming`](crate::streaming), next to the asset streaming they work with.
+pub mod stream {
+    /// Moved: [`ponko::streaming::Job`](crate::streaming::Job).
+    #[deprecated(since = "0.2.0", note = "use `ponko::streaming::Job`")]
+    pub type Job<T> = crate::streaming::Job<T>;
+    /// Moved: `ponko::streaming::CellStreamer`.
+    #[cfg(feature = "3d")]
+    #[deprecated(since = "0.2.0", note = "use `ponko::streaming::CellStreamer`")]
+    pub type CellStreamer = crate::streaming::CellStreamer;
+}
 pub mod streaming;
 pub mod system_view;
 pub mod systems;

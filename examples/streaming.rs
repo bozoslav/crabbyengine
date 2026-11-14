@@ -70,7 +70,7 @@ fn surface(s: Surface) -> Surface {
 
 /// A cell's tile: still being built, or in the world.
 enum Tile {
-    Building(ponko::stream::Job<TerrainTileData>),
+    Building(ponko::streaming::Job<TerrainTileData>),
     Live(Entity, TerrainTile),
 }
 
@@ -85,7 +85,7 @@ fn tile_data(corner: Vec3) -> TerrainTileData {
 fn main() {
     let bench = std::env::var("BENCH").is_ok();
     let shot = std::env::var("SHOT").ok();
-    let mut cells = ponko::stream::CellStreamer::new(TILE, LOAD, KEEP);
+    let mut cells = ponko::streaming::CellStreamer::new(TILE, LOAD, KEEP);
     let mut tiles: HashMap<(i32, i32), Tile> = HashMap::new();
     let mut ground: Option<Material> = None;
     let (mut yaw, mut speed, mut altitude) = (0.4f32, if bench { 600.0f32 } else { 120.0 }, 90.0f32);
@@ -129,7 +129,7 @@ fn main() {
             cells.update(at, STARTS);
             for &cell in cells.to_load() {
                 let corner = cells.corner(cell);
-                tiles.insert(cell, Tile::Building(ponko::stream::Job::spawn(move || tile_data(corner))));
+                tiles.insert(cell, Tile::Building(ponko::streaming::Job::spawn(move || tile_data(corner))));
             }
             for cell in cells.to_drop() {
                 // A job still building is dropped with its result.

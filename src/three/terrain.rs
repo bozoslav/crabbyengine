@@ -367,7 +367,7 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let ground = ctx.gfx.default_material();
-    ///     let job = ponko::stream::Job::spawn(|| ponko::terrain::TerrainTileData::new(&[0.0; 33 * 33], 64.0));
+    ///     let job = ponko::streaming::Job::spawn(|| ponko::terrain::TerrainTileData::new(&[0.0; 33 * 33], 64.0));
     ///     let tile = ctx.gfx.upload_terrain_tile(&job.wait(), ground);
     ///     assert_eq!(tile.lod_distance(), 64.0);
     /// });
@@ -386,7 +386,7 @@ impl Graphics {
 }
 
 /// The meshes of a terrain tile at every detail level, made on the CPU
-/// from its heights: build them on a worker thread with a [`Job`](crate::stream::Job),
+/// from its heights: build them on a worker thread with a [`Job`](crate::streaming::Job),
 /// then [`Graphics::upload_terrain_tile`](crate::gfx::Graphics::upload_terrain_tile) on the game's.
 ///
 /// ```

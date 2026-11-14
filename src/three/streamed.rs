@@ -9,7 +9,7 @@ use super::{LodGroup, LodPick, Mesh, Transform3D, gltf};
 use crate::assets::{self, Origin};
 use crate::streaming::ResidencyKind;
 use crate::streaming::{AssetState, StreamedAsset, StreamedMesh};
-use crate::{ctx::Ctx, stream::Job};
+use crate::{ctx::Ctx, streaming::Job};
 use ponko_ecs::Component;
 use ponko_ecs::World;
 

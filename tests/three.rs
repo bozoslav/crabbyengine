@@ -884,14 +884,14 @@ fn transforms_are_reflected_as_json() {
 /// built on worker threads, freed past 800 m, and coarse far ground
 /// beyond them.
 struct Ground {
-    cells: ponko::stream::CellStreamer,
+    cells: ponko::streaming::CellStreamer,
     tiles: std::collections::HashMap<(i32, i32), Tile>,
     material: Material,
     far: FarTerrain,
 }
 
 enum Tile {
-    Building(ponko::stream::Job<TerrainTileData>),
+    Building(ponko::streaming::Job<TerrainTileData>),
     Live(Entity, TerrainTile),
 }
 
@@ -907,7 +907,7 @@ impl Ground {
             .map(|i| hill(-4096.0 + (i % n) as f32 * 32.0, -4096.0 + (i / n) as f32 * 32.0))
             .collect();
         Self {
-            cells: ponko::stream::CellStreamer::new(128.0, 600.0, 800.0),
+            cells: ponko::streaming::CellStreamer::new(128.0, 600.0, 800.0),
             tiles: Default::default(),
             material,
             far: FarTerrain::new(&heights, n, vec2(-4096.0, -4096.0), 32.0, 128.0, material),
@@ -920,7 +920,7 @@ impl Ground {
         self.cells.update(ctx.scene3d.camera.position, 4);
         for &cell in self.cells.to_load() {
             let corner = self.cells.corner(cell);
-            let job = ponko::stream::Job::spawn(move || {
+            let job = ponko::streaming::Job::spawn(move || {
                 // 65 x 65 heights, 2 m apart.
                 let heights: Vec<f32> = (0..65 * 65)
                     .map(|i| hill(corner.x + (i % 65) as f32 * 2.0, corner.z + (i / 65) as f32 * 2.0))

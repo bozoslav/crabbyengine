@@ -12,13 +12,13 @@ use ponko_ecs::{Component, Entity, World};
 
 /// A convex hull, triangle mesh or heightfield built on the CPU, on any
 /// thread: the slow half of [`Physics3D::heightfield`] and friends. Build
-/// it in a [`Job`](crate::stream::Job) with the rest of a streamed cell, then hand
+/// it in a [`Job`](crate::streaming::Job) with the rest of a streamed cell, then hand
 /// it to [`Physics3D::add_mesh`] on the game's thread, which is quick.
 ///
 /// ```
 /// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(0, |ctx| {
-///     let job = ponko::stream::Job::spawn(|| ponko::physics3d::CollisionMeshData::heightfield(&[0.0; 33 * 33], 64.0));
+///     let job = ponko::streaming::Job::spawn(|| ponko::physics3d::CollisionMeshData::heightfield(&[0.0; 33 * 33], 64.0));
 ///     let ground = ctx.physics3d.add_mesh(&job.wait());
 ///     assert!(ctx.physics3d.is_live(ground));
 /// });
