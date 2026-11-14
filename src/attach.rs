@@ -119,6 +119,12 @@ pub fn follow_attachments(ctx: &mut Ctx) {
     ctx.world.insert_resource(s);
 }
 
+/// [`place`], for the editor's tests.
+#[cfg(test)]
+pub(crate) fn tests_place(world: &World, a: Attached) -> Option<(Vec2, f32)> {
+    place(world, a)
+}
+
 /// Where `a` puts its entity: from the root of the chain down. `None` if
 /// something up the chain is gone (or the chain loops).
 fn place(world: &World, a: Attached) -> Option<(Vec2, f32)> {

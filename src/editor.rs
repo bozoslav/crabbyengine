@@ -970,4 +970,186 @@ mod tests {
         assert_eq!(ed.undo.len(), 2, "edits made while playing are dropped");
         assert_eq!((ctx.world.len(), ctx.world.get::<Hp>(a)), (1, Some(&Hp(5.0))));
     }
+
+    #[test]
+    fn redo_makes_undone_edits_again_and_a_new_edit_drops_it() {
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let a = ed.spawn_empty(&mut ctx, vec2(1.0, 1.0));
+        ed.set(&mut ctx, a, "Hp", json!(5.0)).unwrap();
+        ed.delete(&mut ctx, a).unwrap();
+        assert_eq!(ctx.world.len(), 0);
+        assert!(ed.undo(&mut ctx).unwrap() && ed.undo(&mut ctx).unwrap());
+        let back = ed.resolve(a);
+        assert_eq!((ctx.world.get::<Hp>(back), ed.can_redo()), (None, true));
+        assert!(ed.redo(&mut ctx).unwrap()); // set
+        assert_eq!(ctx.world.get::<Hp>(back), Some(&Hp(5.0)));
+        assert!(ed.redo(&mut ctx).unwrap()); // delete
+        assert_eq!(ctx.world.len(), 0);
+        assert!(!ed.redo(&mut ctx).unwrap());
+        assert!(ed.undo(&mut ctx).unwrap() && ed.undo(&mut ctx).unwrap());
+        ed.spawn_empty(&mut ctx, Vec2::ZERO);
+        assert!(!ed.can_redo(), "a new edit drops what was undone");
+    }
+
+    #[test]
+    fn undo_and_redo_of_a_spawn_and_delete_cycle_keep_finding_the_entity() {
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let a = ed.spawn_empty(&mut ctx, vec2(3.0, 4.0));
+        ed.set(&mut ctx, a, "Hp", json!(2.0)).unwrap();
+        for _ in 0..3 {
+            ed.undo(&mut ctx).unwrap(); // Hp
+            ed.undo(&mut ctx).unwrap(); // spawn: despawned
+            assert_eq!(ctx.world.len(), 0);
+            ed.redo(&mut ctx).unwrap(); // spawned again, a new entity
+            ed.redo(&mut ctx).unwrap(); // Hp on the new one
+            let now = ed.resolve(a);
+            assert!(ctx.world.is_alive(now));
+            assert_eq!((at(&ctx, now), ctx.world.get::<Hp>(now)), (vec2(3.0, 4.0), Some(&Hp(2.0))));
+        }
+    }
+
+    #[test]
+    fn deleting_a_parent_takes_its_children_and_undo_brings_them_back_attached() {
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let parent = ctx.world.spawn((Transform2D::at(vec2(10.0, 0.0)),));
+        let child = ctx
+            .world
+            .spawn((Transform2D::default(), crate::d2::Attached::to(parent), Hp(1.0)));
+        let other = ctx.world.spawn((Transform2D::default(),));
+        ed.delete(&mut ctx, parent).unwrap();
+        assert!(!ctx.world.is_alive(child), "the tree goes as one");
+        assert!(ctx.world.is_alive(other));
+        ed.undo(&mut ctx).unwrap();
+        let (p, c) = (ed.resolve(parent), ed.resolve(child));
+        assert!(ctx.world.is_alive(p) && ctx.world.is_alive(c) && p != parent);
+        assert_eq!(ctx.world.get::<crate::d2::Attached>(c).unwrap().to, p, "still attached");
+        assert_eq!(ctx.world.get::<Hp>(c), Some(&Hp(1.0)));
+    }
+
+    #[test]
+    fn parenting_keeps_the_child_where_it_is_and_refuses_loops() {
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let parent = ctx.world.spawn((Transform2D {
+            position: vec2(10.0, 0.0),
+            rotation: std::f32::consts::FRAC_PI_2,
+            scale: vec2(2.0, 2.0),
+        },));
+        let child = ctx.world.spawn((Transform2D::at(vec2(10.0, 4.0)),));
+        ed.set_parent(&mut ctx, child, Some(parent)).unwrap();
+        let link = *ctx.world.get::<crate::d2::Attached>(child).unwrap();
+        let (p, r) = crate::attach::tests_place(&ctx.world, link).unwrap();
+        assert!((p - vec2(10.0, 4.0)).length() < 1e-4, "{p}: it didn't move");
+        assert!((r - 0.0).abs() < 1e-5);
+        let err = ed.set_parent(&mut ctx, parent, Some(child)).unwrap_err();
+        assert!(err.message().contains("loop"), "{err}");
+        ed.set_parent(&mut ctx, child, None).unwrap();
+        assert!(ctx.world.get::<crate::d2::Attached>(child).is_none());
+        ed.undo(&mut ctx).unwrap();
+        assert_eq!(ctx.world.get::<crate::d2::Attached>(child), Some(&link));
+        ed.undo(&mut ctx).unwrap();
+        assert!(ctx.world.get::<crate::d2::Attached>(child).is_none());
+    }
+
+    #[test]
+    fn the_hierarchy_lists_roots_then_what_hangs_off_them() {
+        let mut ctx = ctx();
+        let root = ctx.world.spawn((Transform2D::default(),));
+        let part = ctx.world.spawn((Transform2D::default(),));
+        ctx.world.insert(root, crate::scene::PrefabParts(vec![part]));
+        let attached = ctx
+            .world
+            .spawn((Transform2D::default(), crate::d2::Attached::to(part)));
+        let loose = ctx.world.spawn((Transform2D::default(),));
+        let nodes = hierarchy(&ctx.world);
+        let order: Vec<Entity> = nodes.iter().map(|n| n.entity).collect();
+        assert_eq!(order, vec![root, part, attached, loose]);
+        assert!(nodes[0].prefab && nodes[0].parent.is_none());
+        assert_eq!(nodes[1].parent, Some((root, Link::PrefabPart)));
+        assert_eq!(nodes[2].parent, Some((part, Link::Attached)));
+        assert_eq!(nodes[0].children, vec![part]);
+        assert_eq!(tree(&ctx.world, &[root]), vec![root, part, attached]);
+    }
+
+    #[test]
+    fn duplicating_a_tree_copies_its_links_to_the_copies() {
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let parent = ctx.world.spawn((Transform2D::default(),));
+        let child = ctx
+            .world
+            .spawn((Transform2D::default(), crate::d2::Attached::to(parent)));
+        let copy = ed.duplicate(&mut ctx, parent, vec2(5.0, 0.0)).unwrap();
+        assert_eq!(ctx.world.len(), 4);
+        let copied_child = hierarchy(&ctx.world)
+            .into_iter()
+            .find(|n| n.parent.map(|p| p.0) == Some(copy))
+            .unwrap()
+            .entity;
+        assert_ne!(copied_child, child);
+        ed.undo(&mut ctx).unwrap();
+        assert_eq!(ctx.world.len(), 2, "undo removes the copied tree");
+    }
+
+    #[test]
+    fn a_scene_load_drops_the_history_but_stop_keeps_it() {
+        let mut ctx = ctx();
+        ctx.edit(|ed, ctx| ed.spawn_empty(ctx, Vec2::ZERO));
+        ctx.edit(|ed, ctx| ed.play(ctx));
+        ctx.edit(|ed, ctx| ed.stop(ctx)).unwrap();
+        assert!(ctx.editor.can_undo(), "Stop is the editor's own load");
+        let save = ctx.world.save();
+        ctx.replace_world(&save).unwrap();
+        assert!(!ctx.edit(|ed, ctx| ed.undo(ctx)).unwrap(), "the steps named the old world");
+    }
+
+    #[cfg(feature = "3d")]
+    #[test]
+    fn moving_a_3d_parent_carries_its_children_and_moving_a_child_changes_its_offset() {
+        use crate::attach::Attached3D;
+        use crate::d3::Transform as T3;
+        use glam::vec3;
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let parent = ctx.world.spawn((T3::at(vec3(1.0, 0.0, 0.0)),));
+        let child = ctx.world.spawn((T3::at(vec3(1.0, 2.0, 0.0)),));
+        ed.set_parent(&mut ctx, child, Some(parent)).unwrap();
+        let offset = ctx.world.get::<Attached3D>(child).unwrap().offset;
+        assert!((offset.position - vec3(0.0, 2.0, 0.0)).length() < 1e-5);
+        ed.set_transforms3d(&mut ctx, &[(parent, T3::at(vec3(5.0, 0.0, 0.0)))]);
+        let c = ctx.world.get::<T3>(child).unwrap().position;
+        assert!((c - vec3(5.0, 2.0, 0.0)).length() < 1e-5, "{c}: the child follows at once");
+        ed.set_transforms3d(&mut ctx, &[(child, T3::at(vec3(5.0, 3.0, 1.0)))]);
+        let offset = ctx.world.get::<Attached3D>(child).unwrap().offset;
+        assert!((offset.position - vec3(0.0, 3.0, 1.0)).length() < 1e-5, "the offset moved, not the link");
+        ed.undo(&mut ctx).unwrap();
+        ed.undo(&mut ctx).unwrap();
+        let c = ctx.world.get::<T3>(child).unwrap().position;
+        assert!((c - vec3(1.0, 2.0, 0.0)).length() < 1e-5, "{c}: both moves undone");
+        ed.redo(&mut ctx).unwrap();
+        let c = ctx.world.get::<T3>(child).unwrap().position;
+        assert!((c - vec3(5.0, 2.0, 0.0)).length() < 1e-5, "{c}: redone with the parent");
+    }
+
+    #[cfg(feature = "3d")]
+    #[test]
+    fn a_multi_entity_move_is_one_undo_step() {
+        use crate::d3::Transform as T3;
+        use glam::vec3;
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let a = ctx.world.spawn((T3::default(),));
+        let b = ctx.world.spawn((T3::at(vec3(2.0, 0.0, 0.0)),));
+        ed.set_transforms3d(
+            &mut ctx,
+            &[(a, T3::at(vec3(0.0, 1.0, 0.0))), (b, T3::at(vec3(2.0, 1.0, 0.0)))],
+        );
+        assert!(ed.undo(&mut ctx).unwrap());
+        assert_eq!(ctx.world.get::<T3>(a).unwrap().position, glam::Vec3::ZERO);
+        assert_eq!(ctx.world.get::<T3>(b).unwrap().position, vec3(2.0, 0.0, 0.0));
+        assert!(!ed.can_undo());
+    }
 }
