@@ -76,8 +76,11 @@ environment variables in a browser. The inspector reads `?inspector=1`
 **The page is yours.** The engine draws into `<canvas id="ponko">` if the
 page has one, and adds a canvas otherwise. `web/index.html` makes the canvas
 fill the page; change it to put the game anywhere. Browsers only allow
-sound once the player has clicked or pressed a key, so sounds played before
-that (music at startup, say) may stay silent.
+sound once the player has clicked, tapped or pressed a key: music and other
+looping sounds started before that wait and start then, one-shots are
+dropped, and `ctx.audio.unlocked()` says whether sound is allowed yet. Music
+loaded with `load_stream` is decoded as it plays rather than all at once
+(see [Sound in a browser](audio.md#in-a-browser)).
 
 **Not available on the web:** the [control endpoint](control.md) and
 [MCP](agents.md) tools, [hot reload](data-files.md) of files, [hot

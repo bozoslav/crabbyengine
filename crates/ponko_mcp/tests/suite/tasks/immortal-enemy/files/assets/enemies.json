@@ -1,0 +1,10 @@
+{
+  "enemies": [
+    { "name": "Grunt", "health": 60.0, "armor": 0.0 },
+    { "name": "Grunt", "health": 60.0, "armor": 0.0 },
+    { "name": "Archer", "health": 40.0, "armor": 0.0 },
+    { "name": "Knight", "health": 60.0, "armor": 0.5 },
+    { "name": "Brute", "health": 80.0, "armor": 1.25 },
+    { "name": "Archer", "health": 40.0, "armor": 0.0 }
+  ]
+}

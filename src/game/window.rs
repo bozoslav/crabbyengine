@@ -451,6 +451,12 @@ where
             return;
         };
 
+        // Browsers allow sound only from the first click, tap or key press
+        // on (the audio output opens then); on the desktop it does nothing.
+        if is_user_gesture(&event) {
+            self.ctx.audio.backend.user_gesture();
+        }
+
         #[cfg(feature = "inspector")]
         if let Some(inspector) = &mut self.inspector {
             if let WindowEvent::KeyboardInput { event: key, .. } = &event
@@ -598,4 +604,18 @@ fn apply_cursor_lock(window: &Window, locked: bool) {
         let _ = window.set_cursor_grab(CursorGrabMode::None);
     }
     window.set_cursor_visible(!locked);
+}
+
+/// Whether `event` lets a browser page start sound (a "user activation"):
+/// a mouse button or key going down (not Escape) or a touch lifting.
+fn is_user_gesture(event: &WindowEvent) -> bool {
+    match event {
+        WindowEvent::MouseInput { state, .. } => *state == ElementState::Pressed,
+        WindowEvent::KeyboardInput { event, .. } => {
+            event.state == ElementState::Pressed
+                && event.physical_key != PhysicalKey::Code(winit::keyboard::KeyCode::Escape)
+        }
+        WindowEvent::Touch(touch) => touch.phase == winit::event::TouchPhase::Ended,
+        _ => false,
+    }
 }

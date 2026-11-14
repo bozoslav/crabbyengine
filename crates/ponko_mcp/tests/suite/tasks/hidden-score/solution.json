@@ -1,0 +1,12 @@
+{
+  "steps": [
+    { "call": "list_resources" },
+    { "call": "run_input_scenario", "args": { "scenario": { "version": 1, "duration": 2, "steps": [
+      { "tick": 1, "type": "expect_ui", "node": "hud.score", "shown": true } ] } } },
+    { "write": "assets/hud.json", "text": "{\n  \"score_text\": \"Score: {points}\",\n  \"show_score\": true\n}\n" },
+    { "until": { "call": "get_resource", "args": { "resource": "HudStyle" }, "pointer": "/show_score", "equals": true }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } },
+    { "call": "set_resource", "args": { "resource": "Score", "value": { "points": 3 } } },
+    { "call": "run_input_scenario", "args": { "scenario": { "version": 1, "duration": 2, "steps": [
+      { "tick": 1, "type": "expect_ui", "node": "hud.score", "shown": true, "text": "Score: 3" } ] } } }
+  ]
+}

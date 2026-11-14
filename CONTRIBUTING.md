@@ -446,7 +446,10 @@ for understanding and reviewing their changes, verifying APIs and dependencies,
 running the required checks, and keeping the change scoped. Use existing MCP tools
 for runtime inspection, screenshots, stepping or profiling when helpful; retain
 reproducible commands/tests and explain what the evidence establishes. Do not treat
-agent narration as proof. Report incomplete work, test skips and platform limitations,
+agent narration as proof. The agent acceptance suite
+(`cargo test -p ponko_mcp --test agent_suite`; "The agent acceptance suite" in
+`book/src/agents.md`) checks that agents can still finish real tasks with the MCP
+tools: a tool change that breaks one of its scripted solutions fails it. Report incomplete work, test skips and platform limitations,
 and distinguish implemented behavior from proposals. Keep private code and assets
 out of public submissions and external services.
 
@@ -482,9 +485,15 @@ release branch (`v0.1.1` on `release-0.1`, see
    `Cargo.lock` (`cargo check --workspace`).
 3. `python3 scripts/release-check.py check vX.Y.Z` lists what still disagrees
    (it does not need the tag to exist), and `cargo publish --workspace
-   --dry-run` packages and builds every crate the way crates.io will. For a
-   minor release (and its first candidate), record the wall-clock baseline on
-   the named benchmark machine, idle, and add it to the pull request:
+   --dry-run` packages and builds every crate the way crates.io will. Re-run
+   the agent acceptance suite (`cargo run -p ponko_mcp --example agent_suite
+   -- replay`; it is also part of `cargo test --workspace`) and, for a minor,
+   try a real agent on it ("The agent acceptance suite" in the guide's agents
+   chapter) and put the scores in the pull request.
+
+   For a minor release (and its first candidate), record the wall-clock
+   baseline on the named benchmark machine, idle, and add it to the pull
+   request:
 
    ```sh
    v=X.Y.Z

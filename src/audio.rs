@@ -102,10 +102,16 @@ impl Default for SoundParams {
 mod mixer;
 use mixer::BusRegistry;
 pub use mixer::{AudioBus, AudioEffects};
+// Streams decoded a packet at a time, for the web (tested natively).
+#[cfg(all(feature = "audio", any(target_arch = "wasm32", test)))]
+mod chunked;
+#[cfg(feature = "audio")]
+mod unlock;
 
 #[cfg(feature = "audio")]
 mod backend {
     use super::mixer::{finite, volume_db};
+    use super::unlock::{Gate, Waiting};
     use super::{AudioBus, AudioEffects, BusRegistry, SoundParams};
     use kira::effect::{
         filter::{FilterBuilder, FilterHandle},
@@ -115,7 +121,10 @@ mod backend {
         PlaybackState,
         static_sound::{StaticSoundData, StaticSoundHandle},
     };
-    // Kira streams from files, which the web doesn't have.
+    // Kira streams on a decoder thread, which the web doesn't have: there
+    // a stream is decoded a packet at a time as it plays (`chunked`).
+    #[cfg(target_arch = "wasm32")]
+    use super::chunked::{ChunkedData, ChunkedHandle};
     #[cfg(not(target_arch = "wasm32"))]
     use kira::sound::{
         FromFileError,
@@ -127,7 +136,6 @@ mod backend {
 
     enum Clip {
         Static(Box<StaticSoundData>),
-        #[cfg(not(target_arch = "wasm32"))]
         Stream(StreamFrom),
         /// Freed: plays nothing, and its id is never reused.
         Freed,
@@ -136,6 +144,8 @@ mod backend {
         Static(StaticSoundHandle),
         #[cfg(not(target_arch = "wasm32"))]
         Stream(StreamingSoundHandle<FromFileError>),
+        #[cfg(target_arch = "wasm32")]
+        Chunked(ChunkedHandle),
     }
     struct Voice {
         /// The sound it plays.
@@ -152,6 +162,8 @@ mod backend {
                 Self::Static(h) => h.state(),
                 #[cfg(not(target_arch = "wasm32"))]
                 Self::Stream(h) => h.state(),
+                #[cfg(target_arch = "wasm32")]
+                Self::Chunked(h) => h.state(),
             }
         }
         fn stop(&mut self) {
@@ -159,6 +171,8 @@ mod backend {
                 Self::Static(h) => h.stop(Tween::default()),
                 #[cfg(not(target_arch = "wasm32"))]
                 Self::Stream(h) => h.stop(Tween::default()),
+                #[cfg(target_arch = "wasm32")]
+                Self::Chunked(h) => h.stop(),
             }
         }
         #[cfg(feature = "3d")]
@@ -174,17 +188,24 @@ mod backend {
                 Self::Static(h) => apply!(h),
                 #[cfg(not(target_arch = "wasm32"))]
                 Self::Stream(h) => apply!(h),
+                #[cfg(target_arch = "wasm32")]
+                Self::Chunked(h) => {
+                    h.set_volume(volume);
+                    h.set_panning(pan);
+                    h.set_playback_rate(f64::from(finite(speed, 1.0)));
+                }
             }
         }
     }
     /// Where a streamed sound's encoded bytes are: each playback opens its
     /// own decoder over them.
-    #[cfg(not(target_arch = "wasm32"))]
     enum StreamFrom {
         /// A file, opened for each playback.
+        #[cfg(not(target_arch = "wasm32"))]
         File(PathBuf),
-        /// Encoded bytes an asset source handed over, kept (not decoded) in
-        /// memory and shared by every playback.
+        /// Encoded bytes an asset source handed over (on the web, every
+        /// streamed file's fetched copy), kept (not decoded) in memory and
+        /// shared by every playback.
         Memory(Arc<[u8]>),
     }
     #[cfg(not(target_arch = "wasm32"))]
@@ -204,10 +225,35 @@ mod backend {
         next: u64,
         pub(super) buses: BusRegistry,
         reverb: Option<SendTrackHandle>,
+        /// On the web: closed until the player's first gesture, holding
+        /// the looping voices asked for before it.
+        gate: Gate,
         #[cfg(feature = "3d")]
         pub(crate) spatial: super::spatial::SpatialState,
     }
     impl Audio {
+        /// Whether sound is allowed: always on the desktop, after the
+        /// first click, tap or key press on the web.
+        pub fn unlocked(&self) -> bool {
+            !self.gate.is_locked()
+        }
+        /// A click, tap or key press: on the web the first one opens the
+        /// output (browsers allow it now) and starts the voices that waited.
+        pub fn user_gesture(&mut self) {
+            if !self.gate.is_locked() {
+                return;
+            }
+            let waiting = self.gate.open();
+            // Opened here, inside the gesture, so the browser lets it play.
+            self.manager();
+            for voice in waiting {
+                self.start(voice.id, voice.sound, voice.params, voice.bus, voice.effects);
+                #[cfg(feature = "3d")]
+                if let Some([volume, pan, speed]) = voice.spatial {
+                    self.spatialize(voice.id, volume, pan, speed);
+                }
+            }
+        }
         /// For tools: whether the output device was opened (it opens on first use).
         pub(crate) fn device_state(&self) -> &'static str {
             match &self.manager {
@@ -240,7 +286,6 @@ mod backend {
                 Clip::Static(data) => (data.frames.len() * std::mem::size_of::<Frame>()) as u64,
                 #[cfg(not(target_arch = "wasm32"))]
                 Clip::Stream(StreamFrom::File(_)) => 0,
-                #[cfg(not(target_arch = "wasm32"))]
                 Clip::Stream(StreamFrom::Memory(bytes)) => bytes.len() as u64,
                 Clip::Freed => 0,
             }
@@ -263,6 +308,7 @@ mod backend {
                 voice.handle.stop();
             }
             self.playing.retain(|_, v| v.sound != id);
+            self.gate.forget_sound(id);
         }
         #[cfg(not(target_arch = "wasm32"))]
         pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
@@ -295,15 +341,21 @@ mod backend {
             self.sounds.push(Clip::Stream(from));
             Ok(((self.sounds.len() - 1) as u32, seconds))
         }
-        /// The web can't stream from files: read the fetched copy and decode it whole.
+        /// The web has no files to stream from: stream the fetched copy.
         #[cfg(target_arch = "wasm32")]
         pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
-            self.load(crate::assets::read(&path).map_err(|e| e.to_string())?)
+            self.stream_bytes(crate::assets::read(&path).map_err(|e| e.to_string())?)
         }
-        /// The web decodes streamed sounds whole (no decoder thread).
+        /// On the web: only the header is decoded now, the samples a packet
+        /// at a time as it plays (`chunked`).
         #[cfg(target_arch = "wasm32")]
         pub fn stream_bytes(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
-            self.load(bytes)
+            let bytes: Arc<[u8]> = bytes.into();
+            let seconds = super::chunked::header(&bytes)
+                .map_err(|e| format!("could not decode the sound: {e}"))?
+                .seconds();
+            self.sounds.push(Clip::Stream(StreamFrom::Memory(bytes)));
+            Ok(((self.sounds.len() - 1) as u32, seconds))
         }
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             let frames: Arc<[Frame]> = samples.iter().map(|&s| Frame::from_mono(s)).collect();
@@ -347,8 +399,17 @@ mod backend {
                 .retain(|_, voice| voice.handle.state() != PlaybackState::Stopped);
             self.next += 1;
             let id = self.next;
+            if self.gate.is_locked() {
+                self.gate.hold(Waiting::new(id, sound, p, bus, effects));
+            } else {
+                self.start(id, sound, p, bus, effects);
+            }
+            id
+        }
+        /// Starts voice `id` now.
+        fn start(&mut self, id: u64, sound: u32, p: SoundParams, bus: AudioBus, effects: AudioEffects) {
             if self.prepare(bus).is_none() {
-                return id;
+                return;
             }
             let effects = effects.validated();
             let send = self.reverb.as_ref().unwrap().id();
@@ -356,15 +417,15 @@ mod backend {
             let mut builder = TrackBuilder::new().with_send(send, volume_db(effects.reverb * gain));
             let filter = builder.add_effect(FilterBuilder::new().cutoff(f64::from(effects.low_pass_hz)));
             let Ok(mut track) = self.buses.entries[bus.0].track.as_mut().unwrap().add_sub_track(builder) else {
-                return id;
+                return;
             };
             let volume = volume_db(p.volume);
             let speed = f64::from(finite(p.speed, 1.0).max(0.01));
             let Some(clip) = self.sounds.get(sound as usize) else {
-                return id;
+                return;
             };
             let handle = match clip {
-                Clip::Freed => return id,
+                Clip::Freed => return,
                 Clip::Static(data) => {
                     let mut data = (**data).clone().volume(volume).playback_rate(speed);
                     if p.looping {
@@ -375,7 +436,7 @@ mod backend {
                 #[cfg(not(target_arch = "wasm32"))]
                 Clip::Stream(from) => {
                     let Ok(data) = from.open() else {
-                        return id;
+                        return;
                     };
                     let mut data = data.volume(volume).playback_rate(speed);
                     if p.looping {
@@ -383,6 +444,11 @@ mod backend {
                     }
                     track.play(data).ok().map(Handle::Stream)
                 }
+                #[cfg(target_arch = "wasm32")]
+                Clip::Stream(StreamFrom::Memory(bytes)) => track
+                    .play(ChunkedData::new(bytes.clone(), p.volume, speed, p.looping))
+                    .ok()
+                    .map(Handle::Chunked),
             };
             if let Some(handle) = handle {
                 self.playing.insert(
@@ -397,7 +463,6 @@ mod backend {
                     },
                 );
             }
-            id
         }
         pub fn bus_changed(&mut self, bus: AudioBus) {
             let Some(state) = self.buses.entries.get_mut(bus.0) else {
@@ -416,6 +481,9 @@ mod backend {
             }
         }
         pub fn effects(&mut self, id: u64, effects: AudioEffects) {
+            if self.gate.set_effects(id, effects) {
+                return;
+            }
             if let Some(voice) = self.playing.get_mut(&id) {
                 let effects = effects.validated();
                 voice
@@ -432,11 +500,17 @@ mod backend {
         }
         #[cfg(feature = "3d")]
         pub fn spatialize(&mut self, id: u64, volume: f32, pan: f32, speed: f32) {
+            if self.gate.spatialize(id, volume, pan, speed) {
+                return;
+            }
             if let Some(v) = self.playing.get_mut(&id) {
                 v.handle.spatialize(volume, pan, speed);
             }
         }
         pub fn stop(&mut self, id: u64) {
+            if self.gate.cancel(id) {
+                return;
+            }
             if let Some(mut v) = self.playing.remove(&id) {
                 v.handle.stop();
             }
@@ -485,6 +559,63 @@ mod backend {
             assert!(matches!(&audio.sounds[0], Clip::Stream(_)));
         }
 
+        /// The backend as on the web before the first click.
+        fn locked() -> Audio {
+            Audio {
+                gate: Gate::locked(),
+                ..Default::default()
+            }
+        }
+
+        #[test]
+        fn web_audio_before_the_first_gesture_never_opens_the_device() {
+            let mut audio = locked();
+            let (sound, _) = audio.create(100, &[0.1; 100]);
+            let music = audio.play_on(
+                sound,
+                SoundParams {
+                    looping: true,
+                    ..Default::default()
+                },
+                AudioBus::default(),
+                AudioEffects::default(),
+            );
+            let click = audio.play(sound, SoundParams::default());
+            audio.effects(music, AudioEffects::default());
+            assert!(!audio.unlocked());
+            assert_ne!(music, click, "every voice keeps its own id");
+            assert!(audio.manager.is_none());
+            assert!(audio.playing.is_empty());
+            // Only the music waits; its handle is what starts at the gesture.
+            assert_eq!(audio.gate.open().iter().map(|v| v.id).collect::<Vec<_>>(), [music]);
+        }
+
+        #[test]
+        fn stopping_or_freeing_before_the_first_gesture_cancels_the_wait() {
+            let mut audio = locked();
+            let (a, _) = audio.create(100, &[0.1; 100]);
+            let (b, _) = audio.create(100, &[0.1; 100]);
+            let looping = SoundParams {
+                looping: true,
+                ..Default::default()
+            };
+            let stopped = audio.play(a, looping);
+            let freed = audio.play(b, looping);
+            let kept = audio.play(a, looping);
+            audio.stop(stopped);
+            audio.free(b);
+            assert_ne!(freed, kept);
+            assert_eq!(audio.gate.open().iter().map(|v| v.id).collect::<Vec<_>>(), [kept]);
+        }
+
+        #[test]
+        fn desktop_audio_is_unlocked_and_gestures_change_nothing() {
+            let mut audio = Audio::default();
+            assert!(audio.unlocked());
+            audio.user_gesture();
+            assert!(audio.manager.is_none(), "a gesture opens nothing on the desktop");
+        }
+
         #[test]
         fn audio_headless_routing_never_initializes_manager() {
             crate::game::Game::new("audio", 1, 1).run_headless(0, |ctx| {
@@ -522,6 +653,11 @@ mod backend {
         pub(crate) fn device_state(&self) -> &'static str {
             "compiled_out"
         }
+        /// Nothing to wait for: there is no sound.
+        pub fn unlocked(&self) -> bool {
+            true
+        }
+        pub fn user_gesture(&mut self) {}
         pub fn load(&mut self, _bytes: Vec<u8>) -> Result<(u32, f32), String> {
             self.count += 1;
             Ok((self.count - 1, 0.0))
@@ -735,6 +871,27 @@ impl Audio {
             return Playing(0);
         }
         Playing(self.backend.play(sound.id, params))
+    }
+
+    /// Whether the game can be heard yet: always on the desktop (and
+    /// without the `audio` feature or a window). In a browser, `false` until
+    /// the player first clicks, taps or presses a key, as browsers allow
+    /// sound only after that. Until then looping sounds you play (music,
+    /// ambience) wait and start at that gesture, while one-shots are
+    /// dropped: a click heard seconds late would be out of place. Show a
+    /// "click to start" screen while it is `false` if the first sounds matter.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if !ctx.audio.unlocked() {
+    ///     ctx.gfx.draw_text("Click to start", vec2(20.0, 20.0), 24.0, Color::WHITE);
+    /// }
+    /// # }
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| assert!(ctx.audio.unlocked()));
+    /// ```
+    pub fn unlocked(&self) -> bool {
+        self.backend.unlocked()
     }
 
     /// Frees sound `id` (see [`Ctx::free`]).

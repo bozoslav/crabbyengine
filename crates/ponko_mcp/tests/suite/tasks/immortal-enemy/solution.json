@@ -1,0 +1,19 @@
+{
+  "steps": [
+    { "call": "world_summary" },
+    { "call": "list_entities", "args": { "with": ["Enemy"] } },
+    { "call": "subscribe_events", "args": { "types": ["Died"] } },
+    { "call": "run_ticks", "args": { "ticks": 300 } },
+    { "call": "take_events" },
+    { "call": "list_entities", "args": { "with": ["Enemy"] }, "save": { "survivor": "/entities/0/entity" } },
+    { "call": "get_resource", "args": { "resource": "Roster" } },
+    { "write": "assets/enemies.json", "text": "{\n  \"enemies\": [\n    { \"name\": \"Grunt\", \"health\": 60.0, \"armor\": 0.0 },\n    { \"name\": \"Grunt\", \"health\": 60.0, \"armor\": 0.0 },\n    { \"name\": \"Archer\", \"health\": 40.0, \"armor\": 0.0 },\n    { \"name\": \"Knight\", \"health\": 60.0, \"armor\": 0.5 },\n    { \"name\": \"Brute\", \"health\": 80.0, \"armor\": 0.25 },\n    { \"name\": \"Archer\", \"health\": 40.0, \"armor\": 0.0 }\n  ]\n}\n" },
+    { "until": { "call": "get_resource", "args": { "resource": "Roster" }, "pointer": "/enemies/4/armor", "equals": 0.25 },
+      "each": { "call": "run_ticks", "args": { "ticks": 1 } } },
+    { "call": "set_component", "args": { "entity": "$survivor", "component": "Enemy", "value": { "armor": 0.25 } } },
+    { "call": "set_resource", "args": { "resource": "Waves", "value": { "wave": true } } },
+    { "call": "subscribe_events", "args": { "types": ["Died"] } },
+    { "call": "run_ticks", "args": { "ticks": 300 } },
+    { "call": "take_events" }
+  ]
+}

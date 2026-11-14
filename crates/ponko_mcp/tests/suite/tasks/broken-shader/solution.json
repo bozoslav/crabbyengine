@@ -1,0 +1,9 @@
+{
+  "steps": [
+    { "call": "shader_status" },
+    { "call": "read_logs", "args": { "lines": 20 } },
+    { "write": "assets/shaders/glow.wgsl", "text": "// Makes the player glow: mixes the sprite's color toward white by the\n// material's first parameter (0 = unchanged, 1 = white).\nfn fragment(p: SpritePixel) -> vec4<f32> {\n    let glow = material.params[0].x;\n    return vec4<f32>(mix(p.color.rgb, vec3<f32>(1.0), glow), p.color.a);\n}\n" },
+    { "until": { "call": "shader_status", "pointer": "/shaders/0/reloads", "equals": 1 }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } },
+    { "call": "shader_status" }
+  ]
+}

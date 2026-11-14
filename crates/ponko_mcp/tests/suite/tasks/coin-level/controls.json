@@ -1,0 +1,23 @@
+[
+  { "name": "nothing", "why": "no level saved",
+    "steps": [],
+    "fails": ["level file saved", "level loads", "player and five coins", "holding right collects them all"] },
+  { "name": "off the path", "why": "five coins, but above the player's path",
+    "steps": [
+      { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [180, 200] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [260, 200] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [340, 200] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [420, 200] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [500, 200] } } } },
+      { "call": "save_scene", "args": { "path": "levels/coins.json" } }
+    ],
+    "fails": ["holding right collects them all"] },
+  { "name": "too far", "why": "the last coin is out of reach in 2 seconds",
+    "steps": [
+      { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [180, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [260, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [340, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [420, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [760, 300] } } } },
+      { "call": "save_scene", "args": { "path": "levels/coins.json" } }
+    ],
+    "fails": ["holding right collects them all"] },
+  { "name": "six coins", "why": "one coin too many",
+    "steps": [
+      { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [180, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [260, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [340, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [420, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [500, 300] } } } }, { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [560, 300] } } } },
+      { "call": "save_scene", "args": { "path": "levels/coins.json" } }
+    ],
+    "fails": ["player and five coins", "holding right collects them all"] }
+]

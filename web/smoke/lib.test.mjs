@@ -7,8 +7,10 @@ import {
   canvasBackendOf,
   checkEngineGpu,
   checkMinimums,
+  checkMusicBeforeClick,
   launchConfig,
   launchFailureKind,
+  musicAfterClick,
   parseArgs,
   parseFixtures,
   parseExpect,
@@ -178,4 +180,28 @@ test("a browser that isn't installed is unsupported on a laptop and a failure in
   assert.equal(launchFailureKind(missing, { CI: "true" }), "launch", "the CI job installs its browsers: missing is broken");
   assert.equal(launchFailureKind("Failed to launch the browser process", {}), "launch");
   assert.equal(launchFailureKind("Failed to launch the browser process", { CI: "true" }), "launch");
+});
+
+test("the 2D fixture checks its music; others and a flag can leave it out", () => {
+  assert.equal(parse("--fixture", "web_smoke").music, "required");
+  assert.equal(parse("--fixture", "web_smoke_3d").music, "none");
+  assert.equal(parse("--fixture", "web_smoke", "--music", "none").music, "none");
+  assert.equal(parse("--dir", "site").music, "none");
+  assert.throws(() => parse("--fixture", "web_smoke", "--music", "loud"), /--music must be required or none/);
+});
+
+test("music must wait for the first click without opening an AudioContext", () => {
+  const quiet = { contexts: [], audible: 0 };
+  assert.equal(checkMusicBeforeClick({ audio_unlocked: false }, quiet), null);
+  assert.match(checkMusicBeforeClick({ audio_unlocked: true }, quiet), /audio_unlocked true/);
+  assert.match(checkMusicBeforeClick({}, quiet), /audio_unlocked undefined/);
+  assert.match(checkMusicBeforeClick({ audio_unlocked: false }, { contexts: ["suspended"], audible: 0 }), /before the first click/);
+});
+
+test("after the click the music is heard in a running AudioContext", () => {
+  const unlocked = { audio_unlocked: true };
+  assert.equal(musicAfterClick(unlocked, { contexts: ["running"], audible: 3 }), null);
+  assert.match(musicAfterClick({ audio_unlocked: false }, { contexts: ["running"], audible: 3 }), /audio_unlocked false/);
+  assert.match(musicAfterClick(unlocked, { contexts: ["suspended"], audible: 3 }), /no running AudioContext/);
+  assert.match(musicAfterClick(unlocked, { contexts: ["running"], audible: 0 }), /no buffer with sound/);
 });

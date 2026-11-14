@@ -17,6 +17,13 @@ order:
    in 3 seconds, a third of the 60 Hz rate; a coarse bound, not a frame-rate
    assertion, kept above the `stall` self-test's 20 ticks).
 4. **Input**: a click on the canvas reaches the game, then each `--press` key.
+   **Music** (`--music required`, the 2D fixture): music the game started
+   during setup waits for that click. Before it, the game reports
+   `audio_unlocked: false` and the page has no `AudioContext` (a browser keeps
+   one opened before a gesture suspended); within 10 s after it, the game
+   reports `audio_unlocked: true`, an `AudioContext` is `running`, and buffers
+   with sound in them have been played. The runner watches the page's
+   `AudioContext` and `AudioBufferSourceNode.start` to see this.
 5. **State minimums** (`--min`): fields the fixture must report at least
    (the 3D fixture's models and triangles drawn).
    **Storage** (`--after-reload`): once the game's writes are stored (its
@@ -37,13 +44,14 @@ runner needs to know about each one, so `--fixture <name>` is all a run takes:
 
 | Fixture | Example | Features | Checks |
 |---|---|---|---|
-| `web_smoke` | `examples/web_smoke.rs` | none | `crab.png` fetched and decoded 32x32; an image and streamed music loaded from an in-memory asset source; sprites drawn |
+| `web_smoke` | `examples/web_smoke.rs` | none | `crab.png` fetched and decoded 32x32; an image and streamed music loaded from an in-memory asset source; the music, started at setup, heard after the first click; sprites drawn |
 | `web_smoke_3d` | `examples/web_smoke_3d.rs` | `3d` | `models/house.glb` fetched and parsed; a sun with shadows; at least 1 model and 100 triangles drawn |
 | `coin_dash` | `examples/coin_dash` | none | the complete game: its picture, keys and the screens they reach (see [A complete game, packaged](../../book/src/packaging.md#the-web-build)); after a reload, the settings it saved come back from the browser's storage |
 
 To add one: publish the state with the helper (or the same attributes by hand),
 add an entry to `fixtures.json` (`example`, `features`, `asset`, `assetSize`
-or none, `assetSource` or none, `presses`, `min`, `afterReload`, `engineGpu`), and name it in the CI job. Every
+or none, `assetSource` or none, `presses`, `min`, `afterReload`, `engineGpu`,
+`music`), and name it in the CI job. Every
 fixture needs `?smoke_case=panic` and `?smoke_case=stall` handled if it is to
 run the self-tests; the helper does that.
 
@@ -92,6 +100,7 @@ Options:
 | `--min <field>=<n>` | The reported state's numeric `<field>` must be at least `n`. Repeatable. |
 | `--after-reload <field>:<value>` | After the presses, reload the page (once the state's `saving` is not `true`); the new page's `<field>` must then be `<value>`. Repeatable. |
 | `--engine-gpu required` | Fail when the fixture publishes no engine GPU report (fixtures set this). |
+| `--music required` / `none` | Check that music started at setup waits for the first click and is heard after it (the fixture reports `audio_unlocked`). `required` for fixtures with `"music": true`. |
 | `--no-trace` / `--chrome-trace` | Skip the Playwright trace, or also write Chromium's GPU trace (it slows a heavy page a lot, enough to trip the stall check on a 3D scene: use it on the 2D fixture, or to look at one run). |
 | `--out <dir>` | Where artifacts go (default `target/web-smoke/<fixture>-<browser>-<backend>-<case>`). |
 | `--browser-arg <flag>` | Extra browser flag (repeatable). |

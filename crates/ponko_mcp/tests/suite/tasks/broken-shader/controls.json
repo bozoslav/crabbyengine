@@ -1,0 +1,10 @@
+[
+  { "name": "nothing", "why": "the shader still doesn't compile", "steps": [],
+    "fails": ["shader compiles in the game"] },
+  { "name": "glow removed", "why": "compiles by dropping what the shader is for",
+    "steps": [ { "write": "assets/shaders/glow.wgsl", "text": "// The glow, turned off.\nfn fragment(p: SpritePixel) -> vec4<f32> {\n    return p.color;\n}\n" }, { "until": { "call": "shader_status", "pointer": "/shaders/0/reloads", "equals": 1 }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } } ],
+    "fails": ["shader still glows"] },
+  { "name": "new error", "why": "fixes the type, forgets a semicolon",
+    "steps": [ { "write": "assets/shaders/glow.wgsl", "text": "fn fragment(p: SpritePixel) -> vec4<f32> {\n    let glow = material.params[0].x\n    return vec4<f32>(mix(p.color.rgb, vec3<f32>(1.0), glow), p.color.a);\n}\n" }, { "until": { "call": "shader_status", "pointer": "/shaders/0/reloads", "equals": 1 }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } } ],
+    "fails": ["shader compiles in the game"] }
+]

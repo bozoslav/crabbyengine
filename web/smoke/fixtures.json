@@ -4,7 +4,8 @@
     "asset": "crab.png",
     "assetSize": "32x32",
     "assetSource": "4x2",
-    "engineGpu": true
+    "engineGpu": true,
+    "music": true
   },
   "web_smoke_3d": {
     "example": "web_smoke_3d",
