@@ -2,16 +2,37 @@
 //! batch, and why. From [`Game::schedule_plan`](crate::game::Game::schedule_plan).
 //!
 //! Systems run phase after phase, and inside a phase in registration order.
-//! The plan cuts that order into **stages**: a stage is either one system
-//! that runs alone, or a **batch** of view systems (systems that take
-//! `&mut SystemView`; see [`Game::add`](crate::game::Game::add)) that are next to each other
-//! in the order and whose declarations don't conflict
+//! The plan puts them into **stages**: a stage is either one system that
+//! runs alone, or a **batch** of view systems (systems that take
+//! `&mut SystemView`; see [`Game::add`](crate::game::Game::add)) whose
+//! declarations don't conflict
 //! ([`SystemAccess::conflicts_before`](crate::access::SystemAccess::conflicts_before)).
 //! Stages run one after another; with
 //! [`Game::parallel_systems`](crate::game::Game::parallel_systems) on, the systems
-//! of a batch may run at the same time. A system never moves past another:
-//! two systems that conflict keep their registration order, because they are
-//! in different stages.
+//! of a batch may run at the same time.
+//!
+//! # Batching by dependencies
+//!
+//! Phases, explicit barriers and systems that run alone cut the order into
+//! **segments**, which nothing crosses. Inside a segment, each view system
+//! goes to the earliest stage that keeps every rule with the systems
+//! registered before it:
+//!
+//! - it runs in a **later stage** than every earlier system whose work it
+//!   must see: one it conflicts with
+//!   ([`conflicts_before`](crate::access::SystemAccess::conflicts_before)),
+//!   or one [`Game::order`](crate::game::Game::order) puts first;
+//! - it runs **no earlier** than any earlier system whose order would show
+//!   at all ([`conflicts_with`](crate::access::SystemAccess::conflicts_with):
+//!   two senders of one event type, say). It may share that system's
+//!   batch, under the barrier rules below, but not move ahead of it.
+//!
+//! So a system that interacts with nothing registered between may join an
+//! earlier stage, ahead of systems registered before it: the order of two
+//! systems that don't interact can't be observed. Two systems that
+//! conflict keep their registration order. The members of a batch need not
+//! be neighbours ([`Stage::members`]), and every system says what kept it
+//! out of the stage before its own ([`PlannedSystem::boundary`]).
 //!
 //! # Barriers
 //!
@@ -31,17 +52,19 @@
 //! never shares a batch with a later reader of it, and a system that
 //! records commands is always the last of its batch.
 //!
-//! A new stage starts ([`Boundary`]):
+//! A system is kept out of an earlier stage ([`Boundary`]):
 //!
 //! - at every [`Phase`],
 //! - before and after every system that runs alone ([`Alone`]): every
 //!   `&mut Ctx` system, and view systems that hold a service only one
 //!   system may hold, send and read the same event type, or run at an
 //!   interval,
-//! - where a system conflicts with one already in the batch,
+//! - by a system it conflicts with,
 //! - at an explicit [`Game::barrier`](crate::game::Game::barrier),
-//! - where [`Game::order`](crate::game::Game::order) says one system must see
-//!   another's work.
+//! - where [`Game::order`](crate::game::Game::order) says it must see
+//!   another's work,
+//! - by an earlier system it must not move ahead of
+//!   ([`Boundary::KeepsOrder`]).
 //!
 //! # Determinism
 //!
@@ -56,7 +79,7 @@
 //!
 //! Change ticks are the same too. Run one at a time, every system has a
 //! change tick of its own; the systems of a batch write in exactly those
-//! ticks (the world moves past them before the batch starts), so
+//! ticks, also when they run ahead of systems registered before them, so
 //! `change_tick()` reads the same number in a system, change stamps
 //! compare the same against a tick a system kept, and the world's tick
 //! after any stage is the same with the scheduler on or off.
