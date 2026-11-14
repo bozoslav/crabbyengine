@@ -8,11 +8,12 @@ export const GALLERY_USAGE =
   "                   [--backend auto|webgpu|webgl2] [--chromium-mode shell|new] [--browser-arg <flag>]...\n" +
   "                   [--timeout <startup seconds>] [--out <artifacts dir>] [--allow-unsupported]";
 
-// Draw calls (WebGL2) or queue submissions (WebGPU) the page must make in
-// the progress window: a coarse bound that only a page that stopped drawing
-// misses (a game draws every frame, at least once per frame).
+// Draw calls (WebGL2) or queue submissions (WebGPU) the page must make after
+// its first frame, within PROGRESS_SECONDS: a coarse bound that only a page
+// that stopped drawing misses (a game draws at least once per frame), with
+// time for a heavy scene to compile its pipelines in its first frames.
 export const MIN_PROGRESS_DRAWS = 10;
-export const PROGRESS_SECONDS = 3;
+export const PROGRESS_SECONDS = 15;
 
 export function parseGalleryArgs(argv) {
   const args = {

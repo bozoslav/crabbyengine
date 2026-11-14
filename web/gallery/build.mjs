@@ -99,6 +99,7 @@ copyFileSync(join(HERE, "gallery.css"), join(out, "gallery.css"));
 copyFileSync(join(HERE, "play.js"), join(out, "play.js"));
 // What was built, for web/smoke/gallery.mjs.
 writeFileSync(join(out, "gallery.json"), JSON.stringify({ ref: site.ref, version: site.version, examples: entries }, null, 2) + "\n");
-// GitHub Pages: serve the files as they are (no Jekyll).
+// For a copy served from a branch by GitHub Pages: no Jekyll. (The release
+// deploys an artifact, which Pages serves as it is.)
 writeFileSync(join(out, ".nojekyll"), "");
 console.log(`gallery: ${entries.length} example(s) in ${out} after ${((Date.now() - started) / 1000).toFixed(0)}s; try it: python3 -m http.server -d ${out} 8000`);

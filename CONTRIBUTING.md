@@ -513,6 +513,14 @@ release branch (`v0.1.1` on `release-0.1`, see
       its Cloudflare Pages deploy hook. Without the secret below it only says
       so; retry the deploy in Cloudflare Pages then. The API reference of the
       release appears on docs.rs by itself.
+   6. **Publishes the web gallery** of the examples
+      (<https://ponkoengine.github.io/ponko/>, `web/gallery/README.md`). Job
+      `gallery` builds it for the tag and checks every page in headless
+      Chromium before the approval (a failed page stops only the gallery, not
+      the release); job `gallery-pages` deploys it to GitHub Pages after
+      `Publish`, for a release that is the newest version (not for a
+      candidate, nor for a patch of an older minor). Without the Pages setup
+      below it warns and skips; re-run it once Pages is set up.
 
    Never run `cargo publish` by hand once the setup below is done.
 
@@ -554,6 +562,13 @@ are done. Order matters only where noted.
    reads besides the built-in token, and the URL itself is the credential:
    never put it in a file. Without it the `Redeploy the website` job warns
    and the website picks the guide up at its next deployment.
+6. **GitHub Pages for the web gallery**: repository Settings, Pages,
+   Source: "GitHub Actions". Then Settings, Environments, `github-pages`
+   (created by that), "Deployment branches and tags": add the tag rule `v*`,
+   since the gallery is deployed from the release tag (by default only the
+   default branch may deploy, and the `Publish the web gallery` job would be
+   refused). The job uses only the built-in token; until Pages is set up it
+   warns and skips the deployment.
 
 ### Release candidates
 

@@ -67,6 +67,11 @@ function countDraws() {
     "clear", "drawArrays", "drawElements", "drawArraysInstanced", "drawElementsInstanced", "drawRangeElements",
   ]);
   wrap(window.GPUQueue?.prototype, ["submit"]);
+  // A headless browser refuses pointer lock (the first-person demos ask for
+  // it on a click), rejecting with an empty error; a real one grants it.
+  Element.prototype.requestPointerLock = function () {
+    return Promise.resolve();
+  };
 }
 
 async function pageState(page) {
@@ -132,7 +137,9 @@ async function checkExample(browser, url, entry, args, caps, report) {
       state = await pageState(page);
       const failure = appFailure(state);
       if (failure) throw failure;
-      if (state.gallery === "running" || state.gallery === "unsupported") break;
+      // Started: the page says so and the game has drawn (only then does the
+      // canvas have its context; asking for one earlier would take it).
+      if ((state.gallery === "running" && state.draws > 0) || state.gallery === "unsupported") break;
       if (Date.now() > deadline) throw new Failure("startup-timeout", `the page never started within ${args.timeout}s (${state.gallery})`);
       await sleep(100);
     }
@@ -155,16 +162,22 @@ async function checkExample(browser, url, entry, args, caps, report) {
       throw new Failure("backend", `the canvas uses ${report.backend}, but the page should have picked ${wanted}`);
     }
 
-    // Progress: the game keeps drawing.
+    // Progress: the game keeps drawing. A heavy scene compiles pipelines
+    // in its first frames, so this waits for the draws rather than timing them.
     const before = state.draws;
-    await sleep(PROGRESS_SECONDS * 1000);
-    state = await pageState(page);
-    let failure = appFailure(state);
-    if (failure) throw failure;
-    report.progress = { before, after: state.draws };
-    if (state.draws - before < MIN_PROGRESS_DRAWS) {
-      throw new Failure("stall", `the page stopped drawing: ${before} -> ${state.draws} draws in ${PROGRESS_SECONDS}s`);
+    const progressDeadline = Date.now() + PROGRESS_SECONDS * 1000;
+    let failure;
+    for (;;) {
+      await sleep(250);
+      state = await pageState(page);
+      failure = appFailure(state);
+      if (failure) throw failure;
+      if (state.draws - before >= MIN_PROGRESS_DRAWS) break;
+      if (Date.now() > progressDeadline) {
+        throw new Failure("stall", `the page stopped drawing: ${before} -> ${state.draws} draws in ${PROGRESS_SECONDS}s`);
+      }
     }
+    report.progress = { before, after: state.draws };
 
     // A click on the game doesn't break it.
     const box = await page.locator(GAME_CANVAS).boundingBox();
@@ -175,7 +188,10 @@ async function checkExample(browser, url, entry, args, caps, report) {
     if (failure) throw failure;
 
     // Rendering: the canvas isn't blank.
-    const png = await page.locator(GAME_CANVAS).screenshot();
+    // The page's pixels in the canvas's box: an element screenshot waits for
+    // the element to be "stable", which a heavy demo on software GL can
+    // keep it from being for longer than the timeout.
+    const png = await page.screenshot({ clip: box, timeout: 60_000 });
     await writeFile(join(report.dir, "canvas.png"), png);
     const blank = (stats) => stats.colors < 3 || stats.foreground < 0.001;
     report.canvas = { screenshot: await canvasStats(page, png) };

@@ -935,7 +935,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: npm ci --prefix web/smoke --no-audit --no-fund
-      - run: node --test web/smoke/*.test.mjs
+      - run: node --test web/smoke/*.test.mjs web/gallery/*.test.mjs
 
   # Runs web builds in headless browsers (web/smoke/README.md): startup,
   # asset fetch, fixed-step progress, a click, a nonblank canvas, and the
@@ -980,7 +980,7 @@ jobs:
           npm ci --prefix web/smoke --no-audit --no-fund
           bash scripts/ci-retry.sh node web/smoke/node_modules/playwright-core/cli.js install --with-deps chromium firefox webkit
       - name: Runner tests
-        run: node --test web/smoke/*.test.mjs
+        run: node --test web/smoke/*.test.mjs web/gallery/*.test.mjs
       - name: Build the fixtures (2D, 3D with --features 3d, the complete game)
         run: |
           web/build.sh web_smoke
@@ -1051,6 +1051,14 @@ jobs:
           for case in missing-asset panic stall; do
             node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --case "$case"
           done
+      # The web gallery (web/gallery/README.md) with two of its examples and a
+      # demo that needs WebGPU, which must show its message on WebGL2: the
+      # pages, their loader and the check the release runs on every example.
+      - name: Web gallery pages (Chromium, WebGL2)
+        if: ${{ !cancelled() }}
+        run: |
+          node web/gallery/build.mjs --only sprites,3d,compute
+          node web/smoke/gallery.mjs --browser chromium --backend webgl2
       # Every run, with what it asked for, what ran, the adapter the engine
       # reported and why anything was unsupported (also in the artifact).
       - name: Summary of every run

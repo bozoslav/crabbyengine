@@ -124,7 +124,7 @@ export function renderPage(entry, site) {
   const attrs = ` data-example="${escapeHtml(entry.example)}" data-webgpu="${entry.webgpu}"`;
   const needs =
     entry.webgpu === "required"
-      ? "Needs WebGPU: it uses compute shaders, which WebGL2 lacks. Without WebGPU the page says so instead of running."
+      ? "Needs WebGPU: it uses GPU features that WebGL2 lacks. Without WebGPU the page says so instead of starting it."
       : "Runs with WebGPU, or with WebGL2 where the browser has no WebGPU (effects that need compute shaders are then off).";
   return `${head(`${entry.title} · ${label(site)} examples`, "../gallery.css").replace("%ATTRS%", attrs)}
 <body class="example">
