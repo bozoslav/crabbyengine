@@ -353,6 +353,8 @@ pub(crate) struct Screenshot {
 mod atlas_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod buffer_render_test;
+#[cfg(all(test, feature = "window", feature = "3d", feature = "compressed-textures"))]
+mod compressed_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod contact_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]

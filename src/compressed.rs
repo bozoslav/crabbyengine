@@ -195,7 +195,9 @@ pub(crate) enum Decoded {
     Blocks(CompressedImage),
 }
 
-const KTX2_MAGIC: [u8; 12] = [0xAB, b'K', b'T', b'X', b' ', b'2', b'0', 0xBB, b'\r', b'\n', 0x1A, b'\n'];
+const KTX2_MAGIC: [u8; 12] = [
+    0xAB, b'K', b'T', b'X', b' ', b'2', b'0', 0xBB, b'\r', b'\n', 0x1A, b'\n',
+];
 
 /// Whether `bytes` start like a KTX2 file.
 pub(crate) fn is_ktx2(bytes: &[u8]) -> bool {
@@ -221,12 +223,14 @@ pub(crate) fn decode(bytes: &[u8], path: &str, what: &str, gpu: GpuFormats) -> O
 /// than a texture.
 pub(crate) fn decode_rgba(bytes: &[u8], path: &str, what: &str) -> Option<Result<Image, Error>> {
     // No block format is sampled, so every file comes back as RGBA8.
-    Some(decode(bytes, path, what, GpuFormats::default())?.map(|decoded| match decoded {
-        Decoded::Rgba(image) => image,
-        Decoded::Blocks(image) => {
-            unreachable!("a {} image chosen for a GPU without block formats", image.format.name())
-        }
-    }))
+    Some(
+        decode(bytes, path, what, GpuFormats::default())?.map(|decoded| match decoded {
+            Decoded::Rgba(image) => image,
+            Decoded::Blocks(image) => {
+                unreachable!("a {} image chosen for a GPU without block formats", image.format.name())
+            }
+        }),
+    )
 }
 
 /// What a file holds, before choosing for a GPU.
@@ -584,19 +588,15 @@ pub(crate) fn decode_blocks(format: BlockFormat, width: u32, height: u32, blocks
         rgba.extend_from_slice(&[r, g, b, a]);
     }
     if format.two_channel() {
-        rebuild_normal_z(&mut rgba, false);
+        rebuild_normal_z(&mut rgba);
     }
     Ok(Image { width, height, rgba })
 }
 
 /// Fills blue with a two-channel normal map's Z (from X in red and Y in
-/// green, or in alpha with `y_in_alpha`, which then goes to green), and
-/// makes alpha opaque.
-fn rebuild_normal_z(rgba: &mut [u8], y_in_alpha: bool) {
+/// green), and makes alpha opaque.
+fn rebuild_normal_z(rgba: &mut [u8]) {
     for p in rgba.chunks_exact_mut(4) {
-        if y_in_alpha {
-            p[1] = p[3];
-        }
         let x = f32::from(p[0]) / 127.5 - 1.0;
         let y = f32::from(p[1]) / 127.5 - 1.0;
         let z = (1.0 - x * x - y * y).max(0.0).sqrt();
@@ -655,16 +655,20 @@ fn transcode_uastc(
             .map_err(|e| invalid(path, what, format_args!("its UASTC blocks don't transcode: {e:?}")))
     };
     let Some((to, format, normal)) = target else {
-        // No block format to use: RGBA8 of the full size.
-        let mut rgba = slice(&file.levels[0], file.width, file.height, T::RGBA32)?;
-        if rrrg {
-            rebuild_normal_z(&mut rgba, true);
-        }
-        return Ok(Decoded::Rgba(Image {
-            width: file.width,
-            height: file.height,
-            rgba,
-        }));
+        // No block format to use: RGBA8 of the full size, through BC7 (BC5
+        // for two channels) decoded on the CPU. Not the transcoder's own
+        // RGBA32 output: the `basis-universal` crate sizes its buffer for
+        // that with a row pitch a quarter of the width, which the C++
+        // transcoder then writes past.
+        let (to, format) = if rrrg {
+            (T::BC5, BlockFormat::Bc5)
+        } else {
+            (T::BC7, BlockFormat::Bc7)
+        };
+        let blocks = slice(&file.levels[0], file.width, file.height, to)?;
+        return decode_blocks(format, file.width, file.height, &blocks)
+            .map(Decoded::Rgba)
+            .map_err(|e| invalid(path, what, e));
     };
     let mut levels = Vec::with_capacity(file.levels.len());
     for (i, level) in file.levels.iter().enumerate() {
@@ -777,7 +781,9 @@ pub(crate) mod tests {
     }
 
     fn uastc_dfd() -> ktx2::dfd::Basic {
-        let mut dfd = ktx2::dfd::Basic::from_format(ktx2::Format::BC7_SRGB_BLOCK).expect("a DFD").0;
+        let mut dfd = ktx2::dfd::Basic::from_format(ktx2::Format::BC7_SRGB_BLOCK)
+            .expect("a DFD")
+            .0;
         dfd.color_model = Some(ktx2::ColorModel::UASTC);
         dfd
     }
@@ -798,7 +804,11 @@ pub(crate) mod tests {
 
     #[test]
     fn ktx2_blocks_upload_as_they_are_when_the_gpu_samples_them() {
-        let levels = vec![solid_bc1(8, 8, RED_565), solid_bc1(4, 4, RED_565), solid_bc1(2, 2, RED_565)];
+        let levels = vec![
+            solid_bc1(8, 8, RED_565),
+            solid_bc1(4, 4, RED_565),
+            solid_bc1(2, 2, RED_565),
+        ];
         let file = ktx2_file(Some(ktx2::Format::BC1_RGBA_SRGB_BLOCK), 8, 8, &levels, false);
         let Some(Ok(Decoded::Blocks(image))) = decode(&file, "a.ktx2", "\"a.ktx2\"", GpuFormats::ALL) else {
             panic!("decoded as blocks");
@@ -833,7 +843,11 @@ pub(crate) mod tests {
             panic!("decoded to RGBA");
         };
         assert_eq!((image.width, image.height), (8, 4));
-        assert!(image.rgba.chunks(4).all(|p| p == [255, 0, 0, 255]), "{:?}", &image.rgba[..8]);
+        assert!(
+            image.rgba.chunks(4).all(|p| p == [255, 0, 0, 255]),
+            "{:?}",
+            &image.rgba[..8]
+        );
     }
 
     #[test]
@@ -867,19 +881,20 @@ pub(crate) mod tests {
             panic!("rgba");
         };
         // X = Y = 0: Z is 1, so blue is full.
-        assert!(flat.rgba.chunks(4).all(|p| p[2] >= 254 && p[3] == 255), "{:?}", &flat.rgba[..4]);
+        assert!(
+            flat.rgba.chunks(4).all(|p| p[2] >= 254 && p[3] == 255),
+            "{:?}",
+            &flat.rgba[..4]
+        );
     }
 
     #[test]
     fn short_levels_are_decode_errors_not_gpu_crashes() {
-        let file = ktx2_file(
-            Some(ktx2::Format::BC7_SRGB_BLOCK),
-            8,
-            8,
-            &[vec![0; 16 * 3]],
-            false,
-        );
-        let err = decode(&file, "a.ktx2", "\"a.ktx2\"", GpuFormats::ALL).unwrap().err().unwrap();
+        let file = ktx2_file(Some(ktx2::Format::BC7_SRGB_BLOCK), 8, 8, &[vec![0; 16 * 3]], false);
+        let err = decode(&file, "a.ktx2", "\"a.ktx2\"", GpuFormats::ALL)
+            .unwrap()
+            .err()
+            .unwrap();
         assert_eq!(err.kind(), ErrorKind::Decode);
         assert!(err.message().contains("mip level 0"), "{}", err.message());
     }
@@ -928,7 +943,12 @@ pub(crate) mod tests {
 
     #[test]
     fn dds_bc_files_load_with_their_mipmaps() {
-        let levels = vec![solid_bc1(8, 8, RED_565), solid_bc1(4, 4, RED_565), solid_bc1(2, 2, RED_565), solid_bc1(1, 1, RED_565)];
+        let levels = vec![
+            solid_bc1(8, 8, RED_565),
+            solid_bc1(4, 4, RED_565),
+            solid_bc1(2, 2, RED_565),
+            solid_bc1(1, 1, RED_565),
+        ];
         let file = dds(b"DXT1", 8, 8, &levels);
         let Some(Ok(Decoded::Blocks(image))) = decode(&file, "a.dds", "a", GpuFormats::ALL) else {
             panic!("blocks");
@@ -948,9 +968,146 @@ pub(crate) mod tests {
         assert!(decode(b"\x89PNG", "a.png", "a", GpuFormats::ALL).is_none());
     }
 
+    /// The fixture card (`tests/fixtures/textures`), and its pixels.
+    fn card_png() -> Vec<u8> {
+        image::load_from_memory(include_bytes!("../tests/fixtures/textures/card.png"))
+            .unwrap()
+            .into_rgba8()
+            .into_raw()
+    }
+
+    fn mean_error(a: &[u8], b: &[u8]) -> f32 {
+        let sum: f32 = a
+            .chunks(4)
+            .zip(b.chunks(4))
+            .map(|(p, q)| (0..3).map(|c| (f32::from(p[c]) - f32::from(q[c])).abs()).sum::<f32>())
+            .sum();
+        sum / (a.len() / 4 * 3) as f32
+    }
+
+    #[test]
+    fn bc7_from_ponko_textures_decodes_close_to_its_source() {
+        let file = include_bytes!("../tests/fixtures/textures/card.ktx2");
+        let Some(Ok(Decoded::Rgba(image))) = decode(file, "card.ktx2", "card", GpuFormats::default()) else {
+            panic!("rgba");
+        };
+        let source = card_png();
+        let error = mean_error(&image.rgba, &source);
+        assert!(error < 2.0, "mean error {error}");
+        // Negative control: another image is far from it.
+        let inverted: Vec<u8> = source.iter().map(|v| 255 - v).collect();
+        assert!(mean_error(&image.rgba, &inverted) > 40.0);
+    }
+
+    #[cfg(all(feature = "basis-universal", not(target_arch = "wasm32")))]
+    #[test]
+    fn uastc_transcodes_to_what_each_gpu_samples() {
+        let file = include_bytes!("../tests/fixtures/textures/card_uastc.ktx2");
+        let source = card_png();
+        let cases = [
+            (
+                GpuFormats {
+                    bc: true,
+                    etc2: true,
+                    astc: true,
+                },
+                Some(BlockFormat::Bc7),
+            ),
+            (
+                GpuFormats {
+                    astc: true,
+                    etc2: true,
+                    ..Default::default()
+                },
+                Some(BlockFormat::Astc4x4),
+            ),
+            (
+                GpuFormats {
+                    etc2: true,
+                    ..Default::default()
+                },
+                Some(BlockFormat::Etc2Rgba8),
+            ),
+            (GpuFormats::default(), None),
+        ];
+        for (gpu, expected) in cases {
+            let decoded = decode(file, "card_uastc.ktx2", "card", gpu).unwrap().unwrap();
+            let rgba = match (decoded, expected) {
+                (Decoded::Blocks(image), Some(format)) => {
+                    assert_eq!(image.format, format);
+                    assert!(image.srgb);
+                    assert_eq!(image.levels.len(), 7);
+                    decode_blocks(image.format, 64, 64, &image.levels[0]).unwrap().rgba
+                }
+                (Decoded::Rgba(image), None) => image.rgba,
+                _ => panic!("{gpu:?}: not {expected:?}"),
+            };
+            let error = mean_error(&rgba, &source);
+            assert!(error < 4.0, "{gpu:?}: mean error {error}");
+        }
+    }
+
+    #[cfg(all(feature = "basis-universal", not(target_arch = "wasm32")))]
+    #[test]
+    fn two_channel_uastc_goes_to_bc5_or_keeps_y_in_alpha() {
+        // A normal map from `ponko textures` with "basis": true (RRRG).
+        let file = include_bytes!("../tests/fixtures/textures/bumps_uastc.ktx2");
+        let source = image::load_from_memory(include_bytes!("../tests/fixtures/textures/bumps.png"))
+            .unwrap()
+            .into_rgba8()
+            .into_raw();
+        let xy_error = |rgba: &[u8], y: usize| {
+            let sum: f32 = rgba
+                .chunks(4)
+                .zip(source.chunks(4))
+                .map(|(p, q)| (f32::from(p[0]) - f32::from(q[0])).abs() + (f32::from(p[y]) - f32::from(q[1])).abs())
+                .sum();
+            sum / (rgba.len() / 4 * 2) as f32
+        };
+        let bc = GpuFormats {
+            bc: true,
+            ..Default::default()
+        };
+        let Decoded::Blocks(bc5) = decode(file, "b", "b", bc).unwrap().unwrap() else {
+            panic!("blocks")
+        };
+        assert_eq!(
+            (bc5.format, bc5.normal, bc5.srgb),
+            (BlockFormat::Bc5, NormalChannels::Rg, false)
+        );
+        let error = xy_error(&decode_blocks(bc5.format, 64, 64, &bc5.levels[0]).unwrap().rgba, 1);
+        assert!(error < 3.0, "BC5: {error}");
+        let astc = GpuFormats {
+            astc: true,
+            ..Default::default()
+        };
+        let Decoded::Blocks(rgba) = decode(file, "b", "b", astc).unwrap().unwrap() else {
+            panic!("blocks")
+        };
+        assert_eq!((rgba.format, rgba.normal), (BlockFormat::Astc4x4, NormalChannels::Ra));
+        let error = xy_error(&decode_blocks(rgba.format, 64, 64, &rgba.levels[0]).unwrap().rgba, 3);
+        assert!(error < 3.0, "ASTC, Y in alpha: {error}");
+        // No block format: RGBA8 with X, Y and the rebuilt Z, like the source.
+        let Decoded::Rgba(flat) = decode(file, "b", "b", GpuFormats::default()).unwrap().unwrap() else {
+            panic!("rgba")
+        };
+        assert!(xy_error(&flat.rgba, 1) < 3.0);
+        let z: f32 = flat
+            .rgba
+            .chunks(4)
+            .zip(source.chunks(4))
+            .map(|(p, q)| (f32::from(p[2]) - f32::from(q[2])).abs())
+            .sum();
+        assert!(z / 4096.0 < 4.0, "Z: {}", z / 4096.0);
+    }
+
     #[test]
     fn streaming_levels_start_further_down_the_chain() {
-        let levels = vec![solid_bc1(16, 8, RED_565), solid_bc1(8, 4, RED_565), solid_bc1(4, 2, RED_565)];
+        let levels = vec![
+            solid_bc1(16, 8, RED_565),
+            solid_bc1(8, 4, RED_565),
+            solid_bc1(4, 2, RED_565),
+        ];
         let image = CompressedImage {
             width: 16,
             height: 8,

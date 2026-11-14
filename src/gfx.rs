@@ -550,7 +550,12 @@ impl Graphics {
     /// Decodes a texture file's bytes and makes a game texture of it: a
     /// block-compressed one for KTX2 and DDS files the GPU samples (feature
     /// `compressed-textures`), RGBA8 otherwise.
-    pub(crate) fn texture_from_file(&mut self, bytes: &[u8], path: &str, what: &str) -> Result<Texture, crate::error::Error> {
+    pub(crate) fn texture_from_file(
+        &mut self,
+        bytes: &[u8],
+        path: &str,
+        what: &str,
+    ) -> Result<Texture, crate::error::Error> {
         #[cfg(feature = "compressed-textures")]
         if let Some(decoded) = crate::compressed::decode(bytes, path, what, self.compressed_formats()) {
             return Ok(match decoded? {

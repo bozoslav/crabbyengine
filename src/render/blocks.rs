@@ -84,13 +84,20 @@ pub(crate) fn upload(
     for level in 0..levels {
         let (w, h) = first.level_size(level);
         // A level smaller than a block still takes a whole block.
-        let (blocks_x, blocks_y) = (w.div_ceil(crate::compressed::BLOCK), h.div_ceil(crate::compressed::BLOCK));
+        let (blocks_x, blocks_y) = (
+            w.div_ceil(crate::compressed::BLOCK),
+            h.div_ceil(crate::compressed::BLOCK),
+        );
         for (z, layer) in layers.iter().enumerate() {
             queue.uploading(Upload::Textures).write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &texture,
                     mip_level: level as u32,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: z as u32 },
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: z as u32,
+                    },
                     aspect: wgpu::TextureAspect::All,
                 },
                 &layer.levels[level],

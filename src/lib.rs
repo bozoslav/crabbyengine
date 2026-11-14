@@ -115,14 +115,14 @@ pub mod actions;
 pub mod alloc_count;
 mod asset_cache;
 pub mod assets;
-#[cfg(feature = "compressed-textures")]
-pub(crate) mod compressed;
 pub mod attach;
 pub mod audio;
 pub mod camera;
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 pub mod collision;
 pub mod color;
+#[cfg(feature = "compressed-textures")]
+pub(crate) mod compressed;
 mod control;
 mod ctx;
 pub mod diagnostics;

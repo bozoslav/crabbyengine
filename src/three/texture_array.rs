@@ -231,7 +231,9 @@ impl Graphics {
         }
         #[cfg(feature = "compressed-textures")]
         if !blocks.is_empty() {
-            if images.is_empty() && let Some(array) = self.compressed_array(paths, &mut blocks, kind)? {
+            if images.is_empty()
+                && let Some(array) = self.compressed_array(paths, &mut blocks, kind)?
+            {
                 return Ok(array);
             }
             // Mixed with image files (or of different formats): every
