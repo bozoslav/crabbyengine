@@ -7,6 +7,8 @@
 // `gpu`, behind the `window` feature; without it, `none` stands in.
 
 pub(crate) mod batch;
+#[cfg(all(feature = "window", feature = "compressed-textures"))]
+pub(crate) mod blocks;
 pub(crate) mod capabilities;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod gi;

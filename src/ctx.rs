@@ -870,6 +870,21 @@ impl Ctx {
                     continue;
                 }
             };
+            #[cfg(feature = "compressed-textures")]
+            match self.gfx.reload_compressed_texture(texture, &file, &name) {
+                Some(Ok(())) => {
+                    self.assets.reloaded_textures.push(texture);
+                    self.assets.reloaded_files.push(name.clone());
+                    eprintln!("ponko: reloaded {name}");
+                    continue;
+                }
+                // Often a file caught halfway through saving; the next save reloads it.
+                Some(Err(e)) => {
+                    eprintln!("ponko: {e}");
+                    continue;
+                }
+                None => {}
+            }
             match assets::load_image_at(&file, &name) {
                 Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {
                     self.gfx.update_texture(texture, &image.rgba);

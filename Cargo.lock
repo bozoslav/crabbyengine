@@ -3187,9 +3187,14 @@ dependencies = [
 name = "ponko_cli"
 version = "0.1.0"
 dependencies = [
+ "basis-universal",
  "crc32fast",
  "flate2",
+ "image",
+ "ktx2",
+ "ruzstd",
  "serde_json",
+ "texture2ddecoder",
 ]
 
 [[package]]

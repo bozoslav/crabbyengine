@@ -134,6 +134,10 @@ pub(crate) enum NormalChannels {
     /// X in red, Y in green (BC5, EAC RG11).
     Rg,
     /// X in red, Y in alpha (a two-channel UASTC file transcoded to RGBA).
+    #[cfg_attr(
+        not(all(feature = "basis-universal", not(target_arch = "wasm32"))),
+        allow(dead_code, reason = "only UASTC transcoding makes it")
+    )]
     Ra,
 }
 
@@ -211,6 +215,18 @@ pub(crate) fn decode(bytes: &[u8], path: &str, what: &str, gpu: GpuFormats) -> O
         return None;
     };
     Some(file.and_then(|file| for_gpu(file, path, what, gpu)))
+}
+
+/// [`decode`] to RGBA8 on the CPU, for loaders that need pixels rather
+/// than a texture.
+pub(crate) fn decode_rgba(bytes: &[u8], path: &str, what: &str) -> Option<Result<Image, Error>> {
+    // No block format is sampled, so every file comes back as RGBA8.
+    Some(decode(bytes, path, what, GpuFormats::default())?.map(|decoded| match decoded {
+        Decoded::Rgba(image) => image,
+        Decoded::Blocks(image) => {
+            unreachable!("a {} image chosen for a GPU without block formats", image.format.name())
+        }
+    }))
 }
 
 /// What a file holds, before choosing for a GPU.

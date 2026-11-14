@@ -699,6 +699,23 @@ fn format_unavailable(format: image::ImageFormat, what: &str, path: &str, by_mag
 /// cargo feature to enable; bytes that aren't a readable image with
 /// [`ErrorKind::Decode`](crate::error::ErrorKind::Decode).
 pub(crate) fn decode_image(bytes: &[u8], path: &str, what: &str) -> Result<Image, crate::error::Error> {
+    // KTX2 and DDS of GPU blocks, decoded on the CPU for loaders that need
+    // pixels (textures themselves upload as blocks, see `Graphics::texture_from_file`).
+    #[cfg(feature = "compressed-textures")]
+    if let Some(image) = crate::compressed::decode_rgba(bytes, path, what) {
+        return image;
+    }
+    #[cfg(not(feature = "compressed-textures"))]
+    if bytes.starts_with(&[0xAB, b'K', b'T', b'X', b' ', b'2', b'0', 0xBB]) {
+        return Err(crate::error::Error::new(
+            crate::error::ErrorKind::Unsupported,
+            format!(
+                "{what} is a KTX2 texture, but this build of ponko doesn't read KTX2: \
+                 turn on its `compressed-textures` cargo feature"
+            ),
+        )
+        .with_path(path));
+    }
     let by_magic = image::guess_format(bytes).ok();
     let format = by_magic.or_else(|| image::ImageFormat::from_path(path).ok());
     if let Some(format) = format.filter(|f| !f.reading_enabled()) {
