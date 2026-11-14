@@ -1578,11 +1578,13 @@ pub fn ponko::physics::Physics::apply_impulse(&mut self, ponko_ecs::entity::Enti
 pub fn ponko::physics::Physics::body_count(&self) -> usize
 pub fn ponko::physics::Physics::cast_ray(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2, f32, ponko::physics::QueryFilter) -> core::option::Option<ponko::physics::RayHit>
 pub fn ponko::physics::Physics::gravity(&self) -> glam::f32::vec2::Vec2
+pub fn ponko::physics::Physics::is_paused(&self) -> bool
 pub fn ponko::physics::Physics::mass(&self, ponko_ecs::entity::Entity) -> core::option::Option<f32>
 pub fn ponko::physics::Physics::new(glam::f32::vec2::Vec2) -> Self
 pub fn ponko::physics::Physics::overlap_circle(&self, glam::f32::vec2::Vec2, f32, ponko::physics::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics::Physics::overlap_point(&self, glam::f32::vec2::Vec2, ponko::physics::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics::Physics::set_gravity(&mut self, glam::f32::vec2::Vec2)
+pub fn ponko::physics::Physics::set_paused(&mut self, bool)
 impl core::default::Default for ponko::physics::Physics
 pub fn ponko::physics::Physics::default() -> Self
 #[non_exhaustive] pub struct ponko::d2::PlacedTile
@@ -6598,11 +6600,13 @@ pub fn ponko::physics::Physics::apply_impulse(&mut self, ponko_ecs::entity::Enti
 pub fn ponko::physics::Physics::body_count(&self) -> usize
 pub fn ponko::physics::Physics::cast_ray(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2, f32, ponko::physics::QueryFilter) -> core::option::Option<ponko::physics::RayHit>
 pub fn ponko::physics::Physics::gravity(&self) -> glam::f32::vec2::Vec2
+pub fn ponko::physics::Physics::is_paused(&self) -> bool
 pub fn ponko::physics::Physics::mass(&self, ponko_ecs::entity::Entity) -> core::option::Option<f32>
 pub fn ponko::physics::Physics::new(glam::f32::vec2::Vec2) -> Self
 pub fn ponko::physics::Physics::overlap_circle(&self, glam::f32::vec2::Vec2, f32, ponko::physics::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics::Physics::overlap_point(&self, glam::f32::vec2::Vec2, ponko::physics::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics::Physics::set_gravity(&mut self, glam::f32::vec2::Vec2)
+pub fn ponko::physics::Physics::set_paused(&mut self, bool)
 impl core::default::Default for ponko::physics::Physics
 pub fn ponko::physics::Physics::default() -> Self
 pub struct ponko::physics::QueryFilter
@@ -7939,11 +7943,13 @@ pub fn ponko::physics::Physics::apply_impulse(&mut self, ponko_ecs::entity::Enti
 pub fn ponko::physics::Physics::body_count(&self) -> usize
 pub fn ponko::physics::Physics::cast_ray(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2, f32, ponko::physics::QueryFilter) -> core::option::Option<ponko::physics::RayHit>
 pub fn ponko::physics::Physics::gravity(&self) -> glam::f32::vec2::Vec2
+pub fn ponko::physics::Physics::is_paused(&self) -> bool
 pub fn ponko::physics::Physics::mass(&self, ponko_ecs::entity::Entity) -> core::option::Option<f32>
 pub fn ponko::physics::Physics::new(glam::f32::vec2::Vec2) -> Self
 pub fn ponko::physics::Physics::overlap_circle(&self, glam::f32::vec2::Vec2, f32, ponko::physics::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics::Physics::overlap_point(&self, glam::f32::vec2::Vec2, ponko::physics::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics::Physics::set_gravity(&mut self, glam::f32::vec2::Vec2)
+pub fn ponko::physics::Physics::set_paused(&mut self, bool)
 impl core::default::Default for ponko::physics::Physics
 pub fn ponko::physics::Physics::default() -> Self
 #[non_exhaustive] pub struct ponko::prelude::d2::PlacedTile
