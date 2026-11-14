@@ -407,6 +407,9 @@ using rect = PonkoRect;
 using font = PonkoFont;
 /// Alignment within a world text block.
 enum class text_align3d : uint32_t { left = 0, center = 1, right = 2 };
+/// Which strings are shaped (Rust `TextShaping`), for ctx::set_text_shaping: `automatic` shapes every
+/// non-ASCII string and keeps ASCII on the per-character fast path; `always` shapes ASCII too (ligatures).
+enum class text_shaping : uint32_t { automatic = PONKO_TEXT_SHAPING_AUTO, always = PONKO_TEXT_SHAPING_ALWAYS };
 /// Where a system runs in the loop, in this order. `input` through `sim_last`
 /// run once per fixed tick (also headless); `frame` through `draw` once per
 /// rendered frame. sim_system uses after_physics, system frame, late_system late.
@@ -3602,6 +3605,18 @@ public:
     bool is_shown(id node) const { bool s = false; detail::check(ponko_ctx_ui_is_shown(raw_, target_, node, &s)); return s; }
     /// The focused node, if any.
     std::optional<id> focus() const { id n = none; detail::check(ponko_ctx_ui_focus(raw_, target_, &n)); return maybe(n); }
+    /// Focuses `node` (an enabled, shown button, text input, toggle or slider on the top screen), as Tab would.
+    void set_focus(id node) { detail::check(ponko_ctx_ui_set_focus(raw_, target_, node)); }
+    /// Takes the focus away.
+    void clear_focus() { detail::check(ponko_ctx_ui_clear_focus(raw_, target_)); }
+    /// Marks `node` as the one its screen opens on: every push_screen of it focuses `node`.
+    void set_initial_focus(id node, bool on = true) { detail::check(ponko_ctx_ui_set_initial_focus(raw_, target_, node, on)); }
+    /// Shows the tree under `root` as a HUD: drawn below every screen, never closed by Escape, never takes input.
+    void show_hud(id root) { detail::check(ponko_ctx_ui_show_hud(raw_, target_, root)); }
+    /// Takes a HUD off the screen; its nodes stay.
+    void hide_hud(id root) { detail::check(ponko_ctx_ui_hide_hud(raw_, target_, root)); }
+    /// Whether `node` is a HUD's root.
+    bool is_hud(id node) const { bool b = false; detail::check(ponko_ctx_ui_is_hud(raw_, target_, node, &b)); return b; }
     /// The topmost node under `point` (window points), as of the last layout.
     std::optional<id> hit_test(vec2 point) const { id n = none; detail::check(ponko_ctx_ui_hit_test(raw_, target_, point, &n)); return maybe(n); }
     /// A scale on top of the window's own, from 0.25 to 8.
@@ -5870,6 +5885,30 @@ public:
     /// The size in pixels draw_text would cover with font `f` at `size`. Throws ponko::error for an unknown
     /// or freed font.
     vec2 measure_text(const char* text, font f, float size) { vec2 v{}; detail::check(ponko_ctx_measure_text_ex(raw_, text, f, size, &v)); return v; }
+    /// Sets the fonts tried, in order, for characters `f` has no glyph for (Rust `set_font_fallbacks`); an
+    /// empty list turns fallback off. Throws ponko::error for a font this game didn't load.
+    void set_font_fallbacks(font f, const std::vector<font>& fallbacks) { detail::check(ponko_ctx_set_font_fallbacks(raw_, f, fallbacks.data(), fallbacks.size())); }
+    /// `f`'s fallback chain, with the system fonts found for it (Rust `font_fallbacks`).
+    std::vector<font> font_fallbacks(font f) const {
+        std::size_t n = 0;
+        detail::check(ponko_ctx_font_fallbacks(raw_, f, nullptr, 0, &n));
+        std::vector<font> out(n);
+        if (n > 0) detail::check(ponko_ctx_font_fallbacks(raw_, f, out.data(), out.size(), &n));
+        return out;
+    }
+    /// Sets which strings are shaped (Rust `set_text_shaping`); needs the library's `text-shaping` feature,
+    /// on by default.
+    void set_text_shaping(ponko::text_shaping mode) { detail::check(ponko_ctx_set_text_shaping(raw_, static_cast<std::uint32_t>(mode))); }
+    /// Which strings are shaped; text_shaping::automatic unless set.
+    ponko::text_shaping text_shaping() const { std::uint32_t m = 0; detail::check(ponko_ctx_text_shaping(raw_, &m)); return static_cast<ponko::text_shaping>(m); }
+    /// Loads a font installed on the computer by family name ("Arial"); throws ponko::error (kind not_found,
+    /// or unsupported without the library's `system-fonts` feature) if it can't.
+    font load_system_font(const char* family) { return try_load_system_font(family).value(); }
+    /// Loads a system font, or says why not, without throwing (Rust `try_load_system_font`).
+    result<font> try_load_system_font(const char* family) { font f{}; const PonkoStatus status = ponko_ctx_try_load_system_font(raw_, family, &f); return detail::attempt(status, f); }
+    /// With `on`, characters no loaded font has are looked up among the computer's fonts (Rust
+    /// `set_system_font_fallback`). Returns whether this build can search them.
+    bool set_system_font_fallback(bool on) { bool available = false; detail::check(ponko_ctx_set_system_font_fallback(raw_, on, &available)); return available; }
 
     // UI widgets (screen space), styled by ui_style().
     /// The immediate-mode UI style.
@@ -6055,6 +6094,15 @@ public:
     // Physics (game::physics), as of the last physics step. Not inside query callbacks.
     /// Changes gravity for every dynamic 2D body, in pixels per second².
     void set_gravity(vec2 gravity) { detail::check(ponko_ctx_set_gravity(raw_, gravity)); }
+    /// Holds the 2D physics step (`true`) or lets it run again; every other system keeps
+    /// running. While held, bodies stay put and no collision events are sent.
+    void set_physics_paused(bool paused) { detail::check(ponko_ctx_set_physics_paused(raw_, paused)); }
+    /// Whether `set_physics_paused` holds the 2D physics step.
+    bool is_physics_paused() {
+        bool paused = false;
+        detail::check(ponko_ctx_is_physics_paused(raw_, &paused));
+        return paused;
+    }
     /// The first collider a ray from `origin` towards `direction` hits within `max_distance`.
     std::optional<ray_hit> cast_ray(vec2 origin, vec2 direction, float max_distance) {
         bool found = false;
@@ -6147,6 +6195,14 @@ public:
         collision_mesh m{};
         detail::check(ponko_ctx_physics3d_trimesh(raw_, vertices.data(), vertices.size(), indices.data(), indices.size(), &m));
         return m;
+    }
+    /// Makes a glTF file (under assets/) solid in one call (Rust
+    /// `Ctx::load_collision_mesh`): its triangles, scaled by `scale`, or a
+    /// convex hull around them with `convex`, for mesh_collider(it) on a
+    /// fixed body. What a scene's mesh collider makes; each file and options
+    /// is read once.
+    collision_mesh load_collision_mesh(const char* path, vec3 scale = {1.0f, 1.0f, 1.0f}, bool convex = false) {
+        collision_mesh m{}; detail::check(ponko_ctx_load_collision_mesh(raw_, path, scale, convex, &m)); return m;
     }
     /// Lets go of a collision mesh; colliders using it keep it until removed.
     void free_collision_mesh(collision_mesh m) { detail::check(ponko_ctx_physics3d_free_mesh(raw_, m)); }

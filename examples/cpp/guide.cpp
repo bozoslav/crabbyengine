@@ -386,6 +386,14 @@ static void controls(ponko::ctx& ctx) {
 // ponko::game("Colony", 1280, 720).sim_system(ants).system(controls);
 // ANCHOR_END: controls
 
+// ANCHOR: physics_pause
+[[maybe_unused]] static void pause_menu(ponko::ctx& ctx) {
+    if (ctx.key_pressed(PONKO_KEY_ESCAPE))
+        ctx.set_physics_paused(!ctx.is_physics_paused()); // the step only
+}
+// ponko::game("Platformer", 1280, 720).physics({0, 980}).sim_system(pause_menu);
+// ANCHOR_END: physics_pause
+
 // ---- Input -------------------------------------------------------------------
 // ANCHOR: gamepad
 struct Player { std::uint32_t slot; float spin; };   // one per connected pad
@@ -2845,6 +2853,27 @@ static void world_text_snippet() {
 }
 // ANCHOR_END: text3d
 
+// ANCHOR: localized_text
+static void localized_text_snippet() {
+    ponko::game("Localized text", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        // One font per script the game is translated into, tried in order
+        // for characters the built-in font lacks.
+        std::vector<ponko::font> fallbacks;
+        for (const char* path : {"fonts/NotoSansArabic-Subset.ttf", "fonts/NotoSansJP-Subset.otf"}) {
+            if (auto f = ctx.try_load_font(path)) fallbacks.push_back(*f);
+        }
+        const ponko::font builtin{0};
+        ctx.set_font_fallbacks(builtin, fallbacks);
+        ctx.set_text_shaping(ponko::text_shaping::automatic);  // the default
+        // "Level 3: " and an Arabic word, in UTF-8 like every string the API takes.
+        const ponko::vec2 size = ctx.measure_text("Level 3: \xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7", builtin, 24);
+        // Installed fonts need the library's system-fonts feature.
+        if (auto system = ctx.try_load_system_font("Noto Sans")) fallbacks.push_back(*system);
+        (void)size;
+    });
+}
+// ANCHOR_END: localized_text
+
 // ANCHOR: gpu_buffers
 static void gpu_particles(ponko::ctx& ctx) {
     auto items = ctx.create_gpu_buffer(128);
@@ -3452,6 +3481,7 @@ int main() {
         if (ctx.asset_state(ponko::residency_kind::texture, "crab.png") != ponko::asset_state::resident) std::abort();
     });
     world_text_snippet();
+    localized_text_snippet();
     action_map_snippet();
     pressed_this_frame_snippet();
     ponko::game("forest guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
