@@ -1,0 +1,61 @@
+Ember Hop: content notices
+==========================
+
+Ember Hop is a reference game for the Ponko engine, built only from content
+made for it. Nothing in it is taken from another work.
+
+Everything below was made for this game (drawn and composed by short
+scripts) and is Copyright (c) 2026 Leon Mamić and Ponko contributors,
+licensed under the MIT license or the Apache License 2.0, at your option
+(see LICENSE-MIT and LICENSE-APACHE in this package).
+
+Pictures
+--------
+assets/ember_hop/sprites/hero.png       the ember spirit: 8 frames of 16 x 16
+assets/ember_hop/sprites/drip.png       the cave slime: 4 frames of 16 x 16
+assets/ember_hop/sprites/spark.png      the spark: 4 frames of 16 x 16
+assets/ember_hop/sprites/brazier.png    the brazier, unlit and lit: 3 frames
+assets/ember_hop/sprites/post.png       the post at the way out: 16 x 32
+assets/ember_hop/sprites/lantern.png    its lantern: 2 frames of 16 x 16
+assets/ember_hop/sprites/ember.png      a soft dot for the particles
+assets/ember_hop/sprites/glow.png       a soft disc for the glows
+assets/ember_hop/levels/cave.png        the tileset: rock, cave wall, water,
+                                        spikes, moss, crystals, mushrooms
+
+Levels, prefabs and the title scene
+-----------------------------------
+assets/ember_hop/levels/cave.tsx        the tileset (Tiled)
+assets/ember_hop/levels/hollow.tmx      the first cave (Tiled)
+assets/ember_hop/levels/deep.tmx        the second cave (Tiled)
+assets/ember_hop/prefabs/spark.json
+assets/ember_hop/prefabs/drip.json
+assets/ember_hop/prefabs/checkpoint.json
+assets/ember_hop/prefabs/exit.json
+assets/ember_hop/scenes/title.json
+
+Sound and music
+---------------
+assets/ember_hop/sounds/jump.wav
+assets/ember_hop/sounds/spark.wav
+assets/ember_hop/sounds/flare.wav
+assets/ember_hop/sounds/stomp.wav
+assets/ember_hop/sounds/hurt.wav
+assets/ember_hop/sounds/checkpoint.wav
+assets/ember_hop/sounds/clear.wav
+assets/ember_hop/sounds/select.wav
+    Sound effects synthesized from square and triangle waves and noise.
+assets/ember_hop/music/cave.ogg
+    A 40-second loop composed and synthesized for the game, encoded as
+    Ogg Vorbis.
+
+Text and fonts
+--------------
+The game ships no font file. Its text is drawn with the default fonts bundled
+into the engine by the `epaint_default_fonts` crate; their licenses are
+included in THIRD-PARTY-NOTICES.txt together with every other library that is
+linked into the game.
+
+The engine
+----------
+Ponko is Copyright (c) 2026 Leon Mamić and Ponko contributors, under the MIT
+license or the Apache License 2.0, at your option. See NOTICE.
