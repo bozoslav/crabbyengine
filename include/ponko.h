@@ -3997,6 +3997,16 @@ enum PonkoStatus ponko_resource_scope(struct PonkoWorld *world,
                                       PonkoResourceScopeFn scope,
                                       void *user);
 
+enum PonkoStatus ponko_world_set_saved(struct PonkoWorld *world, uint64_t entity, bool saved);
+
+enum PonkoStatus ponko_world_is_saved(struct PonkoWorld *world, uint64_t entity, bool *out_saved);
+
+enum PonkoStatus ponko_ctx_spawn_level_without_saved_objects(struct PonkoCtx *ctx,
+                                                             const char *path,
+                                                             struct PonkoVec2 at,
+                                                             const struct PonkoLevelOptions *options,
+                                                             uint64_t *out_root);
+
 struct PonkoInputScenario *ponko_input_scenario_new(void);
 
 void ponko_input_scenario_free(struct PonkoInputScenario *scenario);

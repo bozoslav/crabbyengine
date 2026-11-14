@@ -1720,6 +1720,12 @@ public:
     void despawn(entity e) { valid(); detail::check(ponko_despawn(raw_, e)); }
     /// Whether `e` is alive (a despawned id stays dead, even after its slot is reused).
     bool alive(entity e) const { valid(); bool result = false; detail::check(ponko_is_alive(raw_, e, &result)); return result; }
+    /// Whether world saves hold `e` (Rust `NotSaved`): false leaves it out of
+    /// saves, scenes and save slots, true puts it back. Levels mark everything
+    /// but their prefab objects. Throws if `e` is dead.
+    void set_saved(entity e, bool saved) { valid(); detail::check(ponko_world_set_saved(raw_, e, saved)); }
+    /// Whether world saves hold `e` (see set_saved). Throws if `e` is dead.
+    bool saved(entity e) const { valid(); bool result = false; detail::check(ponko_world_is_saved(raw_, e, &result)); return result; }
     /// How many entities are alive.
     std::size_t size() const { valid(); std::size_t result = 0; detail::check(ponko_world_len(raw_, &result)); return result; }
     /// A copy of `e`'s `T`; throws if `e` is dead or has no `T` (see try_get).
@@ -6418,6 +6424,9 @@ struct level_options {
     bool no_colliders = false;
     /// The z of the objects' layer; layers below get one less each, above one more.
     float z = 0.0f;
+    /// Spawn none of the objects a world save holds (the prefab objects): for
+    /// spawning the level again after load_world, which brings them back.
+    bool without_saved_objects = false;
 };
 /// A spawned level object's data: where it is, its shape, its tile.
 using level_object = PonkoLevelObject;
@@ -6433,7 +6442,9 @@ inline entity spawn_level(ctx& c, const char* path, vec2 at, const level_options
     PonkoLevelOptions o{classes.data(), paths.data(), classes.size(), solid.data(), solid.size(),
                         options.level.empty() ? nullptr : options.level.c_str(), options.no_colliders, options.z};
     entity root = 0;
-    detail::check(ponko_ctx_spawn_level(c.raw(), path, at, &o, &root));
+    detail::check(options.without_saved_objects
+                      ? ponko_ctx_spawn_level_without_saved_objects(c.raw(), path, at, &o, &root)
+                      : ponko_ctx_spawn_level(c.raw(), path, at, &o, &root));
     return root;
 }
 /// Despawns a level and everything it spawned; false if `root` was gone.

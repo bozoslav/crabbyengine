@@ -3163,6 +3163,17 @@ static void levels_and_tilemaps() {
         CHECK(rects.size() == 2);
         CHECK(ponko::tilemap_spawn_colliders(ctx, map, {2, 3, 4, 8}) == 2);
 
+        // Saves leave the level out; a game's entity is saved unless left out.
+        CHECK(!world.saved(root) && !world.saved(ground) && world.saved(map));
+        world.set_saved(map, false);
+        CHECK(!world.saved(map));
+        world.set_saved(map, true);
+        ponko::level_options after_load = options;
+        after_load.without_saved_objects = true; // meadow has no prefab objects: all of it again
+        const ponko::entity again = ponko::spawn_level(ctx, "levels/meadow.tmx", {0, 0}, after_load);
+        CHECK(ponko::level_entities(ctx, again).size() == ponko::level_entities(ctx, root).size());
+        CHECK(ponko::despawn_level(ctx, again));
+
         CHECK(ponko::despawn_level(ctx, root));
         CHECK(!ponko::despawn_level(ctx, root));
         throws([&] { (void)ponko::spawn_level(ctx, "levels/nowhere.tmx", {0, 0}); });

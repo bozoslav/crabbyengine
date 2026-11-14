@@ -558,6 +558,21 @@ static ponko::vec2 start_position(ponko::ctx& ctx, ponko::entity level) {
 }
 // ANCHOR_END: level_objects
 
+// ANCHOR: level_saves
+static void save_meadow(ponko::ctx& ctx) {
+    ctx.save_world("meadow"); // the chests and the player, not the level: it isn't saved
+}
+
+static ponko::entity load_meadow(ponko::ctx& ctx) {
+    ctx.load_world("meadow"); // the saved chests and player, as they were...
+    ponko::level_options options;
+    options.prefabs = {{"Chest", "prefabs/chest.json"}};
+    options.solid = {"Ground"};
+    options.without_saved_objects = true; // ...and the level around them, from its file
+    return ponko::spawn_level(ctx, "levels/meadow.tmx", {0, 0}, options);
+}
+// ANCHOR_END: level_saves
+
 // ANCHOR: autotile
 static void build_wall(ponko::ctx& ctx, ponko::entity walls, std::uint32_t x, std::uint32_t y) {
     ponko::autotile_rule rule;
@@ -581,7 +596,11 @@ static void levels_guide(ponko::ctx& ctx) {
     // ANCHOR_END: tile_extras
     build_wall(ctx, sky, 10, 10);
     if (ponko::tilemap_flip(ctx, sky, 3, 2) != PONKO_TILE_FLIP_X) { std::fprintf(stderr, "flip\n"); std::abort(); }
-    ponko::despawn_level(ctx, level);
+    const std::size_t parts = ponko::level_entities(ctx, level).size();
+    save_meadow(ctx);
+    const ponko::entity again = load_meadow(ctx);
+    if (ponko::level_entities(ctx, again).size() > parts) { std::fprintf(stderr, "level saves\n"); std::abort(); }
+    ponko::despawn_level(ctx, again);
 }
 
 // ---- Camera, text and UI ---------------------------------------------------------
@@ -3180,7 +3199,7 @@ int main() {
         } catch (const std::exception&) {}
         if (report_shader_errors(ctx) != 1 || ctx.shader_status()[0].info.line != 3) std::abort();
     });
-    ponko::game("level guide", 1, 1).physics({0, 700}).run_headless(0, levels_guide);
+    ponko::game("level guide", 1, 1).physics({0, 700}).data_dir("guide-storage").run_headless(0, levels_guide);
     ponko::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     ponko::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
     ponko::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);
