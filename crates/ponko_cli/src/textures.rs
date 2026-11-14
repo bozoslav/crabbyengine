@@ -169,7 +169,9 @@ impl Settings {
             match key.as_str() {
                 "default" => settings.default = rule(value).map_err(|e| format!("textures.json: default: {e}"))?,
                 "textures" => {
-                    let rules = value.as_object().ok_or("textures.json: \"textures\" must be an object")?;
+                    let rules = value
+                        .as_object()
+                        .ok_or("textures.json: \"textures\" must be an object")?;
                     for (path, value) in rules {
                         let rule = rule(value).map_err(|e| format!("textures.json: \"{path}\": {e}"))?;
                         settings.rules.push((path.clone(), rule));
@@ -200,10 +202,7 @@ fn rule(value: &serde_json::Value) -> Result<Rule, String> {
         return Ok(Rule::of(Kind::parse(kind)?));
     }
     let object = value.as_object().ok_or("expected a kind or an object")?;
-    let kind = object
-        .get("kind")
-        .and_then(|k| k.as_str())
-        .ok_or("expected \"kind\"")?;
+    let kind = object.get("kind").and_then(|k| k.as_str()).ok_or("expected \"kind\"")?;
     let mut rule = Rule::of(Kind::parse(kind)?);
     for (key, value) in object {
         match key.as_str() {
@@ -302,7 +301,9 @@ pub fn textures_command(options: &Options, dir: &Path) -> Result<String, String>
             size(encoded.file.len() as u64),
         );
         if rule.kind != Kind::Ui && !(width.is_multiple_of(4) && height.is_multiple_of(4)) {
-            line.push_str("\n  warning: not a multiple of 4 pixels, so GPUs can't sample it compressed; it loads as RGBA8");
+            line.push_str(
+                "\n  warning: not a multiple of 4 pixels, so GPUs can't sample it compressed; it loads as RGBA8",
+            );
         }
         report.push(line);
     }
@@ -310,10 +311,7 @@ pub fn textures_command(options: &Options, dir: &Path) -> Result<String, String>
         return if stale.is_empty() {
             Ok(format!("{} textures are up to date", sources.len()))
         } else {
-            Err(format!(
-                "out of date (run `ponko textures`): {}",
-                stale.join(", ")
-            ))
+            Err(format!("out of date (run `ponko textures`): {}", stale.join(", ")))
         };
     }
     if report.is_empty() {
@@ -394,7 +392,11 @@ pub fn encode(rgba: &[u8], width: u32, height: u32, rule: Rule) -> Result<Encode
         // RGBA8, sampled through sRGB like every image the engine loads.
         let mut levels = vec![rgba.to_vec()];
         if rule.mipmaps {
-            while let Some(next) = halve(levels.last().expect("a level"), width >> (levels.len() - 1), height >> (levels.len() - 1)) {
+            while let Some(next) = halve(
+                levels.last().expect("a level"),
+                width >> (levels.len() - 1),
+                height >> (levels.len() - 1),
+            ) {
                 levels.push(next);
             }
         }
@@ -583,10 +585,19 @@ fn uastc_dfd(srgb: bool, channel: u8) -> ktx2::dfd::Basic {
 
 /// A KTX2 file of one 2D image: `format` (`None`: UASTC) and its levels,
 /// largest first, each Zstandard-supercompressed.
-fn write_ktx2(format: Option<ktx2::Format>, dfd: ktx2::dfd::Basic, width: u32, height: u32, levels: &[Vec<u8>]) -> Vec<u8> {
+fn write_ktx2(
+    format: Option<ktx2::Format>,
+    dfd: ktx2::dfd::Basic,
+    width: u32,
+    height: u32,
+    levels: &[Vec<u8>],
+) -> Vec<u8> {
     let dfd = ktx2::dfd::Block::Basic(dfd).to_vec();
     let dfd_len = 4 + dfd.len();
-    let kvd = key_value(b"KTXwriter", concat!("ponko textures ", env!("CARGO_PKG_VERSION")).as_bytes());
+    let kvd = key_value(
+        b"KTXwriter",
+        concat!("ponko textures ", env!("CARGO_PKG_VERSION")).as_bytes(),
+    );
     let dfd_at = 80 + 24 * levels.len();
     let kvd_at = dfd_at + dfd_len;
     let packed: Vec<Vec<u8>> = levels
@@ -665,7 +676,10 @@ mod tests {
         let o = Options::parse(&[]).unwrap();
         assert_eq!(o.folder, PathBuf::from("assets"));
         let o = Options::parse(&args(&["art", "--out", "assets/textures", "--force"])).unwrap();
-        assert_eq!((o.folder, o.out, o.force), (PathBuf::from("art"), Some(PathBuf::from("assets/textures")), true));
+        assert_eq!(
+            (o.folder, o.out, o.force),
+            (PathBuf::from("art"), Some(PathBuf::from("assets/textures")), true)
+        );
         assert!(Options::parse(&args(&["--bogus"])).is_err());
     }
 
@@ -679,7 +693,14 @@ mod tests {
         .unwrap();
         assert_eq!(s.rule_for("grass.png").kind, Kind::Color);
         assert_eq!(s.rule_for("wall_normal.png").kind, Kind::Normal);
-        assert_eq!(s.rule_for("rock_normal.png"), Rule { kind: Kind::Color, basis: true, mipmaps: true });
+        assert_eq!(
+            s.rule_for("rock_normal.png"),
+            Rule {
+                kind: Kind::Color,
+                basis: true,
+                mipmaps: true
+            }
+        );
         assert_eq!(s.rule_for("ui/menu/button.png").kind, Kind::Ui);
         assert!(!s.rule_for("ui/menu/button.png").mipmaps);
         // `*` stays inside one folder name.
@@ -691,7 +712,11 @@ mod tests {
     fn bad_settings_name_the_problem() {
         let err = Settings::parse(r#"{"textures": {"a.png": "shiny"}}"#).unwrap_err();
         assert!(err.contains("\"a.png\"") && err.contains("unknown kind"), "{err}");
-        assert!(Settings::parse(r#"{"defaults": "color"}"#).unwrap_err().contains("unknown key"));
+        assert!(
+            Settings::parse(r#"{"defaults": "color"}"#)
+                .unwrap_err()
+                .contains("unknown key")
+        );
         assert!(Settings::parse(r#"{"textures": {"a.png": {"kind": "ui", "basis": true}}}"#).is_err());
     }
 
@@ -737,7 +762,9 @@ mod tests {
         let mut pixels = vec![0u32; (w * h) as usize];
         let (w, h) = (w as usize, h as usize);
         match format {
-            ktx2::Format::BC7_SRGB_BLOCK | ktx2::Format::BC7_UNORM_BLOCK => texture2ddecoder::decode_bc7(blocks, w, h, &mut pixels),
+            ktx2::Format::BC7_SRGB_BLOCK | ktx2::Format::BC7_UNORM_BLOCK => {
+                texture2ddecoder::decode_bc7(blocks, w, h, &mut pixels)
+            }
             ktx2::Format::BC5_UNORM_BLOCK => texture2ddecoder::decode_bc5(blocks, w, h, &mut pixels),
             ktx2::Format::BC4_UNORM_BLOCK => texture2ddecoder::decode_bc4(blocks, w, h, &mut pixels),
             other => panic!("{other:?}"),
@@ -796,7 +823,10 @@ mod tests {
     #[test]
     fn basis_textures_keep_uastc_blocks_and_say_their_channels() {
         let rgba = card(32, 32);
-        let rule = Rule { basis: true, ..Rule::of(Kind::Normal) };
+        let rule = Rule {
+            basis: true,
+            ..Rule::of(Kind::Normal)
+        };
         let encoded = encode(&rgba, 32, 32, rule).unwrap();
         let reader = ktx2::Reader::new(&encoded.file[..]).unwrap();
         assert_eq!(reader.header().format, None);
@@ -812,17 +842,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("assets/ui")).unwrap();
         let png = |path: &Path| {
-            image::RgbaImage::from_raw(32, 32, card(32, 32)).unwrap().save(path).unwrap();
+            image::RgbaImage::from_raw(32, 32, card(32, 32))
+                .unwrap()
+                .save(path)
+                .unwrap();
         };
         png(&dir.join("assets/wall.png"));
         png(&dir.join("assets/ui/button.png"));
         std::fs::write(dir.join("assets/textures.json"), r#"{"textures": {"ui/*": "ui"}}"#).unwrap();
         let options = Options::parse(&[]).unwrap();
-        let check = Options { check: true, ..options.clone() };
+        let check = Options {
+            check: true,
+            ..options.clone()
+        };
         assert!(textures_command(&check, &dir).unwrap_err().contains("wall.png"));
         let out = textures_command(&options, &dir).unwrap();
         assert!(out.contains("wall.png -> ") && out.contains("BC7 sRGB"), "{out}");
-        assert!(out.contains("ui/button.png -> ") && out.contains("RGBA8, 32 x 32, 1 level,"), "{out}");
+        assert!(
+            out.contains("ui/button.png -> ") && out.contains("RGBA8, 32 x 32, 1 level,"),
+            "{out}"
+        );
         assert!(dir.join("assets/wall.ktx2").is_file());
         assert_eq!(textures_command(&options, &dir).unwrap(), "textures are up to date");
         assert!(textures_command(&check, &dir).is_ok());

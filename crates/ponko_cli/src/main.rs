@@ -91,9 +91,11 @@ fn run(args: &[String]) -> Result<String, String> {
                 textures::textures_command(&options, &dir)
             }
             #[cfg(not(feature = "textures"))]
-            Err("this ponko was built without `ponko textures`: install it with its default features \
+            Err(
+                "this ponko was built without `ponko textures`: install it with its default features \
                  (`cargo install ponko_cli`)"
-                .into())
+                    .into(),
+            )
         }
         "help" | "-h" | "--help" => match rest.first().map(String::as_str) {
             None => Ok(USAGE.to_string()),
