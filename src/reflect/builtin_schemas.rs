@@ -243,7 +243,7 @@ pub(super) fn builtin<T: 'static>() -> Option<ValueSchema> {
     if id == std::any::TypeId::of::<crate::d2::Transform>() {
         return Some(transform2d());
     }
-    if id == std::any::TypeId::of::<crate::d2::Attached>() {
+    if id == std::any::TypeId::of::<crate::attach::Attached>() {
         return Some(attached());
     }
     if id == std::any::TypeId::of::<crate::scene::PrefabParts>() {
@@ -600,8 +600,8 @@ pub(in crate::reflect) mod tests {
         }
         check!(crate::d2::Transform, crate::d2::Transform::default());
         check!(
-            crate::d2::Attached,
-            crate::d2::Attached::to(ponko_ecs::Entity::from_bits(0))
+            crate::attach::Attached,
+            crate::attach::Attached::to(ponko_ecs::Entity::from_bits(0))
         );
         let e = ponko_ecs::Entity::from_bits;
         check!(

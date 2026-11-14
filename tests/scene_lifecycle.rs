@@ -455,17 +455,17 @@ fn attachments_follow_the_new_scenes_entities() {
             let other = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)),));
             let turret = ctx.world.spawn((
                 Transform2D::default(),
-                ponko::d2::Attached::to(tank).offset(vec2(0.0, -4.0)),
+                ponko::attach::Attached::to(tank).offset(vec2(0.0, -4.0)),
             ));
             let ring = ctx
                 .world
-                .spawn((Transform2D::default(), ponko::d2::Attached::to(other)));
+                .spawn((Transform2D::default(), ponko::attach::Attached::to(other)));
             ctx.assets.save_scene(&ctx.world, a.0).unwrap();
             // Scene B: the same ids; the tank moved, the turret sits elsewhere
             // on it, and the ring's entity isn't in it.
             ctx.world.get_mut::<Transform2D>(tank).unwrap().position = vec2(100.0, 0.0);
-            *ctx.world.get_mut::<ponko::d2::Attached>(turret).unwrap() =
-                ponko::d2::Attached::to(tank).offset(vec2(10.0, 0.0));
+            *ctx.world.get_mut::<ponko::attach::Attached>(turret).unwrap() =
+                ponko::attach::Attached::to(tank).offset(vec2(10.0, 0.0));
             ctx.world.despawn(other);
             ctx.assets.save_scene(&ctx.world, b.0).unwrap();
             ctx.load_scene(a.0).unwrap();

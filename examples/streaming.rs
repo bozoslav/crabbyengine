@@ -15,6 +15,8 @@ use std::collections::HashMap;
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{Material, MaterialDesc, Sky};
+use ponko::terrain::{TerrainTile, TerrainTileData};
 
 const N: usize = 129;
 const TILE: f32 = 256.0;

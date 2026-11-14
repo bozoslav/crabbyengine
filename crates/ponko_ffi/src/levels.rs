@@ -3,8 +3,8 @@
 //! `Ctx::spawn_level` and `ponko::tilemap` in Rust.
 use std::ffi::c_char;
 
-use ponko::d2::{AutoTile, LevelLayer, LevelObject, LevelOptions, LevelRoot, ObjectShape, TileMap};
 use ponko::prelude::Vec2;
+use ponko::tilemap::{AutoTile, LevelLayer, LevelObject, LevelOptions, LevelRoot, ObjectShape, TileMap};
 use ponko_ecs::Entity;
 
 use crate::ctx::{PonkoCtx, ctx_access, out, text};

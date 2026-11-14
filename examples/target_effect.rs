@@ -11,6 +11,7 @@
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{MaterialDesc, MeshData, ScreenEffect, Sky, TargetEffect};
 
 /// Writes the frame's light into its render target; a smaller target than
 /// the frame is a coarse copy, which the screen effect samples smoothly.

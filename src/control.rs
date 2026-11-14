@@ -2630,7 +2630,9 @@ mod tests {
             .join(&path);
         let mut ctx = ctx();
         let root = ctx.world.spawn((Transform2D::default(),));
-        let arm = ctx.world.spawn((Transform2D::default(), crate::d2::Attached::to(root)));
+        let arm = ctx
+            .world
+            .spawn((Transform2D::default(), crate::attach::Attached::to(root)));
         let saved = handle(
             &mut ctx,
             "prefab.save",
@@ -2645,7 +2647,7 @@ mod tests {
         assert_eq!(parts.len(), 1);
         let part = Entity::from_bits(parts[0].as_u64().unwrap());
         let new_root = Entity::from_bits(spawned["entity"].as_u64().unwrap());
-        assert_eq!(ctx.world.get::<crate::d2::Attached>(part).unwrap().to, new_root);
+        assert_eq!(ctx.world.get::<crate::attach::Attached>(part).unwrap().to, new_root);
         let gone = handle(&mut ctx, "prefab.despawn", &json!({ "entity": new_root.to_bits() })).unwrap();
         assert_eq!(gone, 2);
         assert_eq!(ctx.world.len(), 0);

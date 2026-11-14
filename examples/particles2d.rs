@@ -9,9 +9,11 @@
 //! - Left click: a one-shot burst of confetti where you click
 //! - Escape: quit
 
-use ponko::d2::{BlendMode, ParticleEmitter, ParticleSettings, ParticleShape, ParticleSpace, Sprite, Transform};
+use ponko::d2::{ParticleEmitter, ParticleSettings, ParticleShape, Sprite, Transform};
+use ponko::particles::ParticleSpace;
 use ponko::particles::{ParticleCurve, ParticleGradient};
 use ponko::prelude::*;
+use ponko::render::BlendMode;
 
 /// A white disc fading out to its edge: one soft particle.
 fn soft_circle(ctx: &mut Ctx, size: u32) -> Texture {

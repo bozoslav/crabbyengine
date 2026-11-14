@@ -3,10 +3,16 @@
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
 use ponko::anim::Joint;
+use ponko::anim::{
+    AnimationCondition, AnimationGraph, AnimationLayer, AnimationParameter, AnimationState, AnimationTrack,
+    AnimationTransition, Animator, AttachToJoint, Interpolation, JointAnimation, Motion, ParamId, Skeleton, SkinOf,
+    StateId,
+};
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{MaterialDesc, MeshData};
 
 const JOINTS: usize = 8;
 const STEP: f32 = 0.5;

@@ -12,6 +12,8 @@
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{Blend, Material, MaterialDesc, MeshData, ScreenEffect, Sky, TargetCamera};
+use ponko::terrain::{TerrainMaterialDesc, TextureKind};
 
 const TILES: i32 = 5;
 const N: usize = 129;

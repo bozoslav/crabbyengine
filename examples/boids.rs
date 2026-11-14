@@ -10,6 +10,7 @@
 #[allow(unused_imports)]
 use ponko::d2::*;
 use ponko::prelude::*;
+use ponko::spatial::SpatialGrid;
 
 /// Reflected, so tools and agents (ponko-mcp) can read and change velocities.
 #[derive(serde::Serialize, serde::Deserialize, Component)]

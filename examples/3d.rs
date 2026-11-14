@@ -12,6 +12,7 @@
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{MaterialDesc, MeshData, ModelMaterial};
 
 /// Turns around its own Y axis.
 #[derive(Component)]

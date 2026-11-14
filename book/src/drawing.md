@@ -119,7 +119,7 @@ outline):
 <div>
 
 ```rust
-# use ponko::d2::{BlendMode, SpriteMaterialDesc};
+# use ponko::render::{BlendMode, SpriteMaterialDesc};
 let crab = ctx.load_texture("crab.png");
 let noise = ctx.load_texture("noise.png"); // grey: where it burns first
 // A glow that brightens what's behind it:

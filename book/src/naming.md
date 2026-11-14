@@ -145,7 +145,7 @@ removed (see [below](#the-root-glob)):
 | `ParticleEmitter3D` | `d3::ParticleEmitter` |
 | `ParticleSettings3D` | `d3::ParticleSettings` |
 | `ParticleShape3D` | `d3::ParticleShape` |
-| `ParticleSpace3D` | `d3::ParticleSpace` |
+| `ParticleSpace3D` | `ponko::particles::ParticleSpace` |
 | `Physics3D` | `d3::Physics` |
 | `PointLight3D` | `d3::PointLight` |
 | `QueryFilter3D` | `d3::QueryFilter` |

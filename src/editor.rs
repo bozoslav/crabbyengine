@@ -267,7 +267,9 @@ mod tests {
         let mut ctx = ctx();
         let mut ed = Editor::default();
         let root = ctx.world.spawn((Transform2D::default(), Hp(1.0)));
-        let part = ctx.world.spawn((Transform2D::default(), crate::d2::Attached::to(root)));
+        let part = ctx
+            .world
+            .spawn((Transform2D::default(), crate::attach::Attached::to(root)));
         let saved = ctx.assets.save_prefab(&ctx.world, root, &path);
         ctx.world.despawn(root);
         ctx.world.despawn(part);

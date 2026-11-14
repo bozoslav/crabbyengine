@@ -11,6 +11,7 @@
 // ANCHOR: use_yard
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{MaterialDesc, Mesh, MeshData};
 // ANCHOR_END: use_yard
 // ANCHOR: use_hud
 use ponko::ui::{UiEvent, UiLayout};

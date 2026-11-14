@@ -13,6 +13,8 @@
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{Material, MaterialDesc, MeshData};
+use ponko::terrain::{TerrainMaterialDesc, TextureKind};
 
 const N: usize = 129;
 const SIZE: f32 = 512.0;

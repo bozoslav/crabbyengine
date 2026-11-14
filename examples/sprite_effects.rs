@@ -9,8 +9,9 @@
 //!   the last good version stays)
 //! - Escape: quit
 
-use ponko::d2::{BlendMode, Sprite, SpriteMaterialDesc, Transform};
+use ponko::d2::{Sprite, Transform};
 use ponko::prelude::*;
+use ponko::render::{BlendMode, SpriteMaterialDesc};
 
 /// A white disc fading out to its edge: the glow.
 fn soft_circle(ctx: &mut Ctx, size: u32) -> Texture {

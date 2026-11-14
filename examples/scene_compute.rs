@@ -20,6 +20,7 @@
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{ComputePass, MaterialDesc, MeshData, ScreenEffect, Sky};
 
 /// The light meter: the average brightness of 16 x 9 points of the frame,
 /// blended into what the texel held (`c.value`, the last frames' average)

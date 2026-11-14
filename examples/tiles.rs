@@ -13,6 +13,7 @@
 #[allow(unused_imports)]
 use ponko::d2::*;
 use ponko::prelude::*;
+use ponko::sheet::Animation;
 
 const TILE: u32 = 16;
 /// Tile frames in the generated tileset.
@@ -90,7 +91,7 @@ struct Wander(Vec2);
 // ANCHOR: setup
 fn setup(ctx: &mut Ctx, side: u32) {
     let tiles = tileset(ctx);
-    let mut map = ponko::d2::TileMap::new(tiles, side, side);
+    let mut map = ponko::tilemap::TileMap::new(tiles, side, side);
     for y in 0..side {
         for x in 0..side {
             map.set(x, y, Some(terrain(x as f32, y as f32)));
@@ -131,7 +132,7 @@ fn paint(ctx: &mut Ctx) {
     }
     let at = ctx.mouse_world();
     ctx.world
-        .query::<(&Transform2D, &mut ponko::d2::TileMap)>()
+        .query::<(&Transform2D, &mut ponko::tilemap::TileMap)>()
         .for_each(|(t, map)| {
             if let Some(tile) = map.tile_at(t.position, at) {
                 map.set(tile.x, tile.y, Some(STONE));

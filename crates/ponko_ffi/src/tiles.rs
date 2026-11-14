@@ -2,9 +2,9 @@
 use std::mem::offset_of;
 
 use ponko::{
-    d2::Animation,
-    d2::TileMap,
     prelude::{Color, SpriteSheet, TextureFilter, Vec2},
+    sheet::Animation,
+    tilemap::TileMap,
 };
 
 use crate::ctx::{ctx_access, out};

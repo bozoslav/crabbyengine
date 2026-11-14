@@ -52,7 +52,7 @@ pub(crate) const PHYSICS3D_HZ: u32 = 50;
 /// let crate_body = ponko::d3::RigidBody::dynamic();
 /// let ground = ponko::d3::RigidBody::fixed();
 /// assert_eq!(crate_body.gravity_scale, 1.0);
-/// assert_eq!(ground.kind, ponko::d2::BodyKind::Fixed);
+/// assert_eq!(ground.kind, ponko::collision::BodyKind::Fixed);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]

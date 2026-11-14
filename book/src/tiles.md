@@ -59,7 +59,7 @@ system (on by default, all cores) advances it every frame:
 <div>
 
 ```rust
-# use ponko::d2::Animation;
+# use ponko::sheet::Animation;
 # let pos = vec2(100.0, 100.0);
 # let sheet = SpriteSheet::new(ctx.load_texture("units.png"), 32, 32);
 ctx.world.spawn((
@@ -160,7 +160,7 @@ map can scroll slower than the world, for far-away layers:
 <div>
 
 ```rust
-# use ponko::d2::TileMap;
+# use ponko::tilemap::TileMap;
 # let mut map = TileMap::new(SpriteSheet::new(ctx.load_texture("levels/meadow.png"), 16, 16), 40, 15);
 map.parallax = vec2(0.3, 0.3);                      // far away: scrolls slowly
 map.animate(4, &[(4, 0.4), (5, 0.4)]);             // tile 4 shows 4, 5, 4, 5, ...
@@ -230,7 +230,7 @@ Objects are plain data until you give them meaning, by their class:
 <div>
 
 ```rust
-# use ponko::d2::LevelObject;
+# use ponko::tilemap::LevelObject;
 let mut coins = 0;
 for (t, o) in ctx.world.query::<(&ponko::d2::Transform, &LevelObject)>().iter() {
     if o.class == "Coin" {
@@ -253,7 +253,7 @@ for (t, o) in ctx.world.query::<(&ponko::d2::Transform, &LevelObject)>().iter() 
 `LevelOptions` changes what is spawned (`spawn_level_with`):
 
 ```rust
-# use ponko::d2::LevelOptions;
+# use ponko::tilemap::LevelOptions;
 let options = LevelOptions::default()
     .prefab("Chest", "prefabs/chest.json") // objects of class Chest are this prefab
     .solid("Walls")                         // a layer, IntGrid value, tile class or tag that collides
@@ -287,7 +287,7 @@ save, then spawn the level around it without the prefab objects:
 <div>
 
 ```rust
-# use ponko::d2::LevelOptions;
+# use ponko::tilemap::LevelOptions;
 let options = LevelOptions::default().prefab("Chest", "prefabs/chest.json");
 ctx.spawn_level_with("levels/meadow.tmx", Vec2::ZERO, options.clone()).expect("level");
 // ... play ...

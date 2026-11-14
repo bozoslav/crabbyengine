@@ -15,6 +15,7 @@ use std::time::Instant;
 #[cfg(feature = "3d")]
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::Sky;
 
 /// The middle and size of where the scene's models are.
 fn extent(world: &mut World) -> (Vec3, f32) {

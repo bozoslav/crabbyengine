@@ -341,7 +341,7 @@ impl Ctx {
         let mut world = World::new();
         crate::reflect::WorldReflect::reflect::<crate::d2::Transform>(&mut world);
         crate::reflect::describe_transform2d(&mut world);
-        crate::reflect::WorldReflect::reflect::<crate::d2::Attached>(&mut world);
+        crate::reflect::WorldReflect::reflect::<crate::attach::Attached>(&mut world);
         crate::reflect::WorldReflect::reflect::<crate::scene::PrefabParts>(&mut world);
         #[cfg(feature = "3d")]
         crate::reflect::WorldReflect::reflect::<crate::d3::Transform>(&mut world);
@@ -730,8 +730,8 @@ impl Ctx {
         self.draw_styled_sprites();
     }
 
-    /// The sprites with a [`BlendMode`](crate::d2::BlendMode) or a
-    /// [`SpriteMaterial`](crate::d2::SpriteMaterial); most frames have
+    /// The sprites with a [`BlendMode`](crate::render::BlendMode) or a
+    /// [`SpriteMaterial`](crate::render::SpriteMaterial); most frames have
     /// none, so it stays out of line.
     #[inline(never)]
     fn draw_styled_sprites(&mut self) {

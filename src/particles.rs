@@ -11,7 +11,8 @@
 //!
 //! ```
 //! use ponko::prelude::*;
-//! use ponko::d2::{BlendMode, ParticleEmitter, ParticleSettings, ParticleShape};
+//! use ponko::d2::{ParticleEmitter, ParticleSettings, ParticleShape};
+//! use ponko::render::BlendMode;
 //! use ponko::particles::ParticleGradient;
 //!
 //! let sparks = ParticleSettings::default()
@@ -340,7 +341,8 @@ pub enum ParticleShape2D {
 /// nonnegative (rotation may be negative). Invalid settings panic in
 /// [`ParticleEmitter2D::new`].
 /// ```
-/// use ponko::d2::{BlendMode, ParticleEmitter, ParticleSettings};
+/// use ponko::d2::{ParticleEmitter, ParticleSettings};
+/// use ponko::render::BlendMode;
 /// let settings = ParticleSettings::default().with_rate(40.0).with_blend(BlendMode::Additive);
 /// let emitter = ParticleEmitter::new(settings);
 /// assert_eq!(emitter.live_count(), 0);

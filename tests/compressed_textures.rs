@@ -148,7 +148,7 @@ fn a_residency_budget_holds_a_compressed_texture_at_a_smaller_mip_level() {
 #[cfg(feature = "3d")]
 #[test]
 fn texture_arrays_take_compressed_layers() {
-    use ponko::d3::TextureKind;
+    use ponko::terrain::TextureKind;
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.assets.add_source(textures());
         let array = ctx

@@ -41,3 +41,55 @@
   use ponko::d3::{Collider, CollisionGroups, Physics};
   let hz = Physics::HZ;
   ```
+- `ponko::d3` no longer re-exports the types of topic modules, so each type
+  has one path: render types (`Material`, `MaterialDesc`, `Mesh`,
+  `MeshData`, `Model`, `ModelMaterial(s)`, `Shader*`, `Lod*`, `Post`, `Sky`,
+  `ComputePass`, `ScreenEffect`, `TargetCamera`, `StreamedLod`, ...) are in
+  `ponko::render`, animation types (`Animator`, `AnimationClip`,
+  `AnimationGraph`, `Skeleton`, `SkinOf`, `MorphWeights`, ...) in
+  `ponko::anim`, terrain types (`Heightfield`, `TerrainTile`,
+  `TerrainTileData`, `TerrainMaterialDesc`, `TextureArray`, `TextureKind`,
+  `FarTerrain`) in `ponko::terrain`, `ParticleCurve`, `ParticleGradient` and
+  `ParticleSpace` in `ponko::particles`, and `BodyKind`, `CollisionStarted`
+  and `CollisionStopped` in `ponko::collision`. `d3` keeps the types named
+  after the dimension (`Transform`, `Camera`, lights, decals, text, trails,
+  particle emitters, positional audio, navigation agents, `UiPanel`) and the
+  3D physics. `Model` stays in the prelude.
+  Instead: import these types from their module next to `use ponko::d3::*;`.
+  Before:
+  ```rust
+  use ponko::d3::*;
+  let desc = MaterialDesc::color(Color::WHITE);
+  let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0));
+  ```
+  After:
+  ```rust
+  use ponko::d3::*;
+  use ponko::render::{MaterialDesc, MeshData};
+  let desc = MaterialDesc::color(Color::WHITE);
+  let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0));
+  ```
+- `ponko::d2` no longer re-exports the types of topic modules: tile maps and
+  levels (`TileMap`, `Tileset`, `Level`, `LevelOptions`, `LevelObject`,
+  `AutoTile`, ...) are in `ponko::tilemap`, `Animation` and `SpriteSheet` in
+  `ponko::sheet` (`SpriteSheet` stays in the prelude), `Attached` in
+  `ponko::attach`, `SpatialGrid` in `ponko::spatial`, `NavGrid` and
+  `FlowField` in `ponko::flow`, `BlendMode`, `SpriteMaterial`,
+  `SpriteMaterialDesc` and `SpriteShader` in `ponko::render`, the particle
+  curves in `ponko::particles` and the collision types in
+  `ponko::collision`. `d2` keeps `Transform`, `Camera`, `Sprite`, the
+  particle emitter types and the 2D physics.
+  Instead: import these types from their module.
+  Before:
+  ```rust
+  use ponko::d2::*;
+  let child = (Transform::default(), Attached::to(parent));
+  let map = TileMap::new(tiles, 32, 32);
+  ```
+  After:
+  ```rust
+  use ponko::d2::*;
+  use ponko::{attach::Attached, tilemap::TileMap};
+  let child = (Transform::default(), Attached::to(parent));
+  let map = TileMap::new(tiles, 32, 32);
+  ```

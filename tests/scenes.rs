@@ -273,7 +273,7 @@ fn reflect_tree_types(ctx: &mut Ctx) {
 /// driver (two levels), and a flag that isn't attached (a plain part) but
 /// follows the hat. Returns the root.
 fn build_cart(ctx: &mut Ctx, at: Vec2) -> Entity {
-    use ponko::d2::Attached;
+    use ponko::attach::Attached;
     let cart = ctx.world.spawn((Transform2D::at(at), Palm { height: 1.0 }));
     let driver = ctx.world.spawn((
         Transform2D::at(at + vec2(0.0, -10.0)),
@@ -311,8 +311,8 @@ fn cart_parts(world: &World, cart: Entity) -> (Entity, Entity, Entity) {
 fn assert_cart(world: &World, cart: Entity, at: Vec2) {
     let (driver, hat, flag) = cart_parts(world, cart);
     assert_eq!(world.get::<Transform2D>(cart).unwrap().position, at);
-    assert_eq!(world.get::<ponko::d2::Attached>(driver).unwrap().to, cart);
-    assert_eq!(world.get::<ponko::d2::Attached>(hat).unwrap().to, driver);
+    assert_eq!(world.get::<ponko::attach::Attached>(driver).unwrap().to, cart);
+    assert_eq!(world.get::<ponko::attach::Attached>(hat).unwrap().to, driver);
     assert_eq!(
         world.get::<Follows>(cart),
         Some(&Follows(hat)),
@@ -643,7 +643,7 @@ fn a_3d_prefabs_joints_join_its_new_bodies() {
 /// with their cart, and scrapping a cart takes all five away.
 #[test]
 fn the_prefab_example_rolls_carts_and_scraps_one_whole() {
-    use ponko::d2::Attached;
+    use ponko::attach::Attached;
     let mut carts = Vec::new();
     let world = prefab_example::game().run_headless(prefab_example::SCRAP_AT - 1, |ctx| {
         carts = prefab_example::setup(ctx);
@@ -721,7 +721,9 @@ fn a_prefab_with_an_animated_sprite_spawns_animating() {
         crab = Some(ctx.spawn_prefab("prefabs/crab.json", vec2(5.0, 5.0)).unwrap());
     });
     let crab = crab.unwrap();
-    let animation = world.get::<ponko::d2::Animation>(crab).expect("the prefab's animation");
+    let animation = world
+        .get::<ponko::sheet::Animation>(crab)
+        .expect("the prefab's animation");
     assert_eq!((animation.first, animation.frames, animation.sheet.len), (0, 4, 4));
     assert!(animation.time > 0.3, "a third of a second: {}", animation.time);
     let sprite = world.get::<Sprite>(crab).unwrap();
@@ -735,15 +737,17 @@ fn a_scene_keeps_each_animations_frame() {
     let mut crab = None;
     let saved = game().run_headless(0, |ctx| {
         let sheet = SpriteSheet::new(ctx.load_texture("crab.png"), 16, 16);
-        let mut walk = ponko::d2::Animation::new(sheet, 1..4, 6.0).once();
+        let mut walk = ponko::sheet::Animation::new(sheet, 1..4, 6.0).once();
         walk.time = 0.4;
         crab = Some(ctx.world.spawn((Transform2D::default(), sheet.sprite(1), walk)));
         ctx.assets.save_scene(&ctx.world, file.name()).unwrap();
     });
     let crab = crab.unwrap();
-    let before = saved.get::<ponko::d2::Animation>(crab).unwrap().clone();
+    let before = saved.get::<ponko::sheet::Animation>(crab).unwrap().clone();
     let world = game().run_headless(0, |ctx| ctx.load_scene(file.name()).unwrap());
-    let after = world.get::<ponko::d2::Animation>(crab).expect("loaded with the scene");
+    let after = world
+        .get::<ponko::sheet::Animation>(crab)
+        .expect("loaded with the scene");
     assert_eq!(after, &before);
     assert_eq!(after.current_frame(), 3);
 }

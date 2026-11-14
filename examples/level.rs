@@ -11,6 +11,7 @@
 
 use ponko::d2::*;
 use ponko::prelude::*;
+use ponko::tilemap::{AutoTile, LevelObject, TileMap};
 
 /// The player.
 #[derive(Component)]

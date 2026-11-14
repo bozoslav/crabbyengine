@@ -27,7 +27,7 @@ use ponko_ecs::{Component, Entity, With, World};
 ///     .sim_system(systems::follow_attachments) // after the systems that move things
 ///     .run_headless(10, |ctx| {
 ///         let tank = ctx.world.spawn((ponko::d2::Transform::at(vec2(0.0, 0.0)), Tank));
-///         let on_top = ponko::d2::Attached::to(tank).offset(vec2(0.0, -4.0));
+///         let on_top = ponko::attach::Attached::to(tank).offset(vec2(0.0, -4.0));
 ///         turret = Some(ctx.world.spawn((ponko::d2::Transform::default(), on_top)));
 ///     });
 /// let at = world.get::<ponko::d2::Transform>(turret.unwrap()).unwrap().position;

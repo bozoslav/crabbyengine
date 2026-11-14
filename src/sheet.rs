@@ -102,7 +102,7 @@ impl SpriteSheet {
 ///
 /// ```
 /// # use ponko::prelude::*;
-/// # use ponko::d2::Animation;
+/// # use ponko::sheet::Animation;
 /// # fn setup(ctx: &mut Ctx, sheet: SpriteSheet) {
 /// ctx.world.spawn((
 ///     ponko::d2::Transform::at(vec2(200.0, 200.0)),
@@ -146,7 +146,7 @@ impl Animation {
     ///
     /// ```
     /// # use ponko::prelude::*;
-    /// # use ponko::d2::Animation;
+    /// # use ponko::sheet::Animation;
     /// # fn f(sheet: SpriteSheet) {
     /// let explode = Animation::new(sheet, 8..16, 24.0).once();
     /// # }
@@ -160,7 +160,7 @@ impl Animation {
     ///
     /// ```
     /// # use ponko::prelude::*;
-    /// # use ponko::d2::Animation;
+    /// # use ponko::sheet::Animation;
     /// # fn f(sheet: SpriteSheet) {
     /// let walk = Animation::new(sheet, 4..8, 10.0);
     /// assert_eq!(walk.current_frame(), 4);
@@ -182,7 +182,7 @@ impl Animation {
     ///
     /// ```
     /// # use ponko::prelude::*;
-    /// # use ponko::d2::Animation;
+    /// # use ponko::sheet::Animation;
     /// # fn cleanup(ctx: &mut Ctx) {
     /// let done: Vec<Entity> = ctx.world.query::<(Entity, &Animation)>().iter()
     ///     .filter(|(_, a)| a.finished())

@@ -20,8 +20,10 @@
 
 #[allow(unused_imports)]
 use ponko::d2::*;
+use ponko::flow::{FlowField, NavGrid};
 #[allow(unused_imports)]
 use ponko::prelude::*;
+use ponko::spatial::SpatialGrid;
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
 

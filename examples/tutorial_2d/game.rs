@@ -10,6 +10,7 @@
 // ANCHOR: use_level
 use ponko::d2::*;
 use ponko::prelude::*;
+use ponko::tilemap::LevelObject;
 // ANCHOR_END: use_level
 // ANCHOR: use_menu
 use ponko::ui::{UiEvent, UiLayout};

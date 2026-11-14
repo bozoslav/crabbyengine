@@ -789,7 +789,7 @@ mod meshes {
         ctx.world.spawn((
             Transform::default(),
             LodGroup::new(4.0, levels),
-            ponko::d3::StreamedLod::new(&files),
+            ponko::render::StreamedLod::new(&files),
         ))
     }
 

@@ -65,5 +65,7 @@ pub use serde_json::json;
 pub use crate::actions;
 pub use crate::d2::{Camera as Camera2D, Sprite, Transform as Transform2D};
 #[cfg(feature = "3d")]
-pub use crate::d3::{Camera as Camera3D, Model, Transform as Transform3D};
+pub use crate::d3::{Camera as Camera3D, Transform as Transform3D};
+#[cfg(feature = "3d")]
+pub use crate::render::Model;
 pub use crate::ui::{Ui, UiId};
