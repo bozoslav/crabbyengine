@@ -854,7 +854,7 @@ fn finish_run(ctx: &mut Ctx) {
 /// Sim system, after the physics step: the whole game.
 pub fn rules(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    let intent = std::mem::replace(ctx.world.resource_mut::<Intent>(), Intent::default());
+    let intent = std::mem::take(ctx.world.resource_mut::<Intent>());
     // The latched presses are used up; what is held stays.
     {
         let held = ctx.world.resource_mut::<Intent>();
