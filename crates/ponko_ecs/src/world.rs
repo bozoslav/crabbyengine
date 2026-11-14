@@ -383,15 +383,18 @@ impl World {
         }
         let a = loc.archetype as usize;
         let moved = unsafe { self.archetypes[a].swap_remove_drop(loc.row as usize) };
-        match moved {
-            Some(moved) => self.entities.set_row(moved, loc.row as usize),
+        let Some(moved) = moved else {
             // The removed row was the last one; row 0 means it was the only
             // one. Deciding this from what `swap_remove_drop` returned, not
-            // from the archetype's length, keeps the common path free of the
-            // bookkeeping (issue #448).
-            None if loc.row == 0 => self.despawned_last(a),
-            None => {}
-        }
+            // from the archetype's length, keeps the common path below free
+            // of the bookkeeping (issue #448).
+            std::hint::cold_path();
+            if loc.row == 0 {
+                self.despawned_last(a);
+            }
+            return true;
+        };
+        self.entities.set_row(moved, loc.row as usize);
         true
     }
 
