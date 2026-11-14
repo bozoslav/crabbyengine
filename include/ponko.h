@@ -2094,6 +2094,18 @@ typedef struct PonkoVehicle3D {
   uint32_t reserved;
 } PonkoVehicle3D;
 
+typedef struct PonkoAudioKey {
+  float distance;
+  float gain;
+} PonkoAudioKey;
+
+typedef struct PonkoTargetEffect {
+  struct PonkoEffect effect;
+  struct PonkoTexture target;
+  bool has_material;
+  struct PonkoMaterial material;
+} PonkoTargetEffect;
+
 typedef struct PonkoSprite {
   struct PonkoTexture texture;
   struct PonkoColor color;
@@ -5273,6 +5285,116 @@ struct PonkoTransform3D ponko_wheel3d_pose(const struct PonkoWheel3D *wheel,
                                            struct PonkoTransform3D chassis);
 
 enum PonkoStatus ponko_vehicle3d_component(struct PonkoWorld *world, uint32_t *out_id);
+
+enum PonkoStatus ponko_action_map_count(const struct PonkoActionMap *map, size_t *out_count);
+
+enum PonkoStatus ponko_action_map_name(const struct PonkoActionMap *map,
+                                       size_t index,
+                                       char *buffer,
+                                       size_t capacity,
+                                       size_t *out_len);
+
+enum PonkoStatus ponko_action_map_get(const struct PonkoActionMap *map,
+                                      const char *name,
+                                      uint32_t *out_kind,
+                                      struct PonkoActionBinding *out_bindings,
+                                      size_t capacity,
+                                      size_t *out_count);
+
+enum PonkoStatus ponko_ctx_set_action(struct PonkoCtx *ctx,
+                                      const char *name,
+                                      uint32_t kind,
+                                      const struct PonkoActionBinding *bindings,
+                                      size_t count);
+
+enum PonkoStatus ponko_ctx_play_sound_at_keyed(struct PonkoCtx *ctx,
+                                               struct PonkoSound sound,
+                                               struct PonkoVec3 position,
+                                               const struct PonkoAudioSettings3D *settings,
+                                               const struct PonkoAudioKey *keys,
+                                               size_t count,
+                                               struct PonkoPlaying *out_playing);
+
+enum PonkoStatus ponko_ctx_set_audio_source3d_keyed(struct PonkoCtx *ctx,
+                                                    uint64_t entity_bits,
+                                                    struct PonkoSound sound,
+                                                    const struct PonkoAudioSettings3D *settings,
+                                                    const struct PonkoAudioKey *keys,
+                                                    size_t count);
+
+enum PonkoStatus ponko_ctx_audio_unlocked(struct PonkoCtx *ctx, bool *out_unlocked);
+
+enum PonkoStatus ponko_game_add_builtin(struct PonkoGame *game,
+                                        uint32_t phase_raw,
+                                        uint32_t system_id);
+
+enum PonkoStatus ponko_builtin_access(uint32_t system_id, struct PonkoAccess **out_access);
+
+enum PonkoStatus ponko_access_clone(const struct PonkoAccess *access,
+                                    struct PonkoAccess **out_access);
+
+enum PonkoStatus ponko_ctx_ecs_diagnostics(struct PonkoCtx *ctx,
+                                           char *buffer,
+                                           size_t capacity,
+                                           size_t *out_len);
+
+enum PonkoStatus ponko_ctx_set_lod_hysteresis(struct PonkoCtx *ctx,
+                                              uint64_t entity,
+                                              float fraction);
+
+enum PonkoStatus ponko_ctx_lod_hysteresis(struct PonkoCtx *ctx,
+                                          uint64_t entity,
+                                          float *out_fraction);
+
+enum PonkoStatus ponko_lod_instance_levels(float size,
+                                           struct PonkoVec3 center,
+                                           const struct PonkoLodLevel *levels,
+                                           size_t count,
+                                           float scale,
+                                           float fov_y,
+                                           struct PonkoLodSettings settings,
+                                           struct PonkoInstanceLevel *out_levels,
+                                           size_t capacity,
+                                           size_t *out_count);
+
+enum PonkoStatus ponko_ctx_set_scene_compute_passes(struct PonkoCtx *ctx,
+                                                    const struct PonkoComputePass *passes,
+                                                    size_t count);
+
+enum PonkoStatus ponko_ctx_scene_compute_passes(struct PonkoCtx *ctx,
+                                                struct PonkoComputePass *out_passes,
+                                                size_t capacity,
+                                                size_t *out_count);
+
+enum PonkoStatus ponko_ctx_set_target_effects(struct PonkoCtx *ctx,
+                                              const struct PonkoTargetEffect *effects,
+                                              size_t count);
+
+enum PonkoStatus ponko_ctx_target_effects(struct PonkoCtx *ctx,
+                                          struct PonkoTargetEffect *out_effects,
+                                          size_t capacity,
+                                          size_t *out_count);
+
+enum PonkoStatus ponko_ctx_storage_world_slots(struct PonkoCtx *ctx,
+                                               char *buffer,
+                                               size_t capacity,
+                                               size_t *out_len);
+
+enum PonkoStatus ponko_ctx_delete_world(struct PonkoCtx *ctx, const char *slot);
+
+enum PonkoStatus ponko_ctx_storage_is_persistent(struct PonkoCtx *ctx, bool *out_persistent);
+
+enum PonkoStatus ponko_ctx_storage_is_saving(struct PonkoCtx *ctx, bool *out_saving);
+
+enum PonkoStatus ponko_ctx_ui_immediate_font(struct PonkoCtx *ctx, struct PonkoFont *out_font);
+
+enum PonkoStatus ponko_ctx_set_ui_immediate_font(struct PonkoCtx *ctx, struct PonkoFont font);
+
+enum PonkoStatus ponko_ctx_ui_immediate_border_width(struct PonkoCtx *ctx, float *out_width);
+
+enum PonkoStatus ponko_ctx_set_ui_immediate_border_width(struct PonkoCtx *ctx, float width);
+
+enum PonkoStatus ponko_ctx_ui_immediate_scale(struct PonkoCtx *ctx, float *out_scale);
 
 #ifdef __cplusplus
 }  // extern "C"

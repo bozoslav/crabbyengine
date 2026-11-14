@@ -3169,6 +3169,111 @@ static void levels_and_tilemaps() {
     });
 }
 
+// The bindings of 0.2 that were Rust-only (#387): action read-back and set_action, built-ins and their
+// declarations, LOD hysteresis and instance levels, scene compute passes and target effects, keyed audio
+// curves, save slots, the immediate UI's font, border and scale, and the ECS diagnostics.
+static void remaining_bindings() {
+    // An action map reads back by name.
+    ponko::action_map map;
+    map.set("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_SPACE), ponko::action_binding::mouse(PONKO_MOUSE_LEFT)}));
+    map.set("move", ponko::action::axis2({ponko::action_binding::keys2(PONKO_KEY_A, PONKO_KEY_D, PONKO_KEY_W, PONKO_KEY_S)}));
+    CHECK(map.size() == 2);
+    CHECK((map.names() == std::vector<std::string>{"jump", "move"}));
+    auto jump = map.get("jump");
+    CHECK(jump && jump->kind == 0 && jump->bindings.size() == 2 && jump->bindings[0].first == static_cast<std::uint32_t>(PONKO_KEY_SPACE));
+    CHECK(map.get("move")->bindings[0].fourth == static_cast<std::uint32_t>(PONKO_KEY_S));
+    CHECK(!map.get("fire"));
+
+    // Built-ins: their declarations, and adding one back where you want it.
+    auto navmesh = ponko::access::builtin(ponko::systems::step_navmesh3d);
+    CHECK(navmesh.conflicts_before(ponko::access(), false) == 0);
+    ponko::access copy = navmesh;
+    CHECK(copy.conflicts_before(navmesh, false) == navmesh.conflicts_before(navmesh, false) && copy.conflicts_before(navmesh, false) > 0);
+    CHECK(ponko::access::builtin(ponko::systems::draw_sprites).conflicts_before(ponko::access(), false) > 0);
+    throws_invalid([] { ponko::access::builtin(ponko::system_id{999}); }, "PONKO_SYSTEM_");
+    auto g = ponko::game("bindings", 1, 1);
+    g.remove(ponko::systems::draw_tilemaps).add_builtin(ponko::phase::late, ponko::systems::draw_tilemaps);
+    const std::string plan = g.schedule_plan();
+    CHECK(plan.find("Late\n  ponko::tilemap::draw_tilemaps") != std::string::npos);
+    throws_invalid([&] { g.add_builtin(ponko::phase::late, ponko::system_id{999}); }, "PONKO_SYSTEM_");
+
+    // LOD levels for an instance batch.
+    const auto near = ponko::lod_renderer_of(ponko::mesh{4});
+    const auto far = ponko::lod_renderer_of(ponko::mesh{5});
+    const float fov = 1.0f;
+    auto levels = ponko::lod_instance_levels(2.0f, {{0.2f, 0, {near}, false, {}}, {0.05f, 0, {far}, false, {}}}, 1.0f, fov, {1.0f, true});
+    CHECK(levels && levels->size() == 2 && (*levels)[0].mesh.id == 4);
+    CHECK((*levels)[0].max_distance == ponko::lod_distance_at(2.0f, 0.2f, fov));
+    auto tinted = near; tinted.color.g = 0.5f;
+    CHECK(!ponko::lod_instance_levels(2.0f, {{0.2f, 0, {tinted}, false, {}}}, 1.0f, fov, {1.0f, true}));
+
+    int diagnosed = 0;
+    g.add(ponko::phase::after_physics, [&](ponko::ctx& ctx) {
+        const std::string json = ctx.ecs_diagnostics();
+        diagnosed += json.find("\"entities\":1") != std::string::npos && json.find("\"name\":\"diagnose\"") != std::string::npos;
+    }, "diagnose");
+    const auto dir = std::filesystem::temp_directory_path() / "ponko-cpp-remaining-bindings";
+    std::filesystem::remove_all(dir);
+    g.data_dir(dir.string().c_str());
+    g.run_headless(1, [](ponko::ctx& ctx) {
+        // set_action: one action changes, its id stays, the others stay.
+        ctx.set_actions(jump_map());
+        const auto id = ctx.action_id("jump");
+        ctx.set_action("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_J)}));
+        CHECK(ctx.action_id("jump") == id);
+        CHECK(ctx.actions().get("jump")->bindings[0].first == static_cast<std::uint32_t>(PONKO_KEY_J));
+        throws_invalid([&] { ctx.set_action("jump", ponko::action{0, {ponko::action_binding::keys(PONKO_KEY_A, PONKO_KEY_D).raw}}); }, "match");
+
+        // LOD hysteresis.
+        auto e = ctx.world().spawn(Pos{0, 0});
+        CHECK(ctx.lod_hysteresis(e) == 0.0f);
+        ctx.set_lod_hysteresis(e, 0.1f);
+        CHECK(ctx.lod_hysteresis(e) == 0.1f);
+        throws_invalid([&] { ctx.set_lod_hysteresis(e, 2.0f); }, "between 0 and 1");
+
+        // Scene compute passes and target effects.
+        auto light = ctx.create_render_target(16, 9);
+        auto meter = ctx.create_compute("meter", "fn compute(c: Cell) -> vec4<f32> { return vec4<f32>(scene_color(c.uv * frame.screen.xy), 1.0); }");
+        ctx.set_scene_compute_passes({ponko::compute_pass_of(meter, light)});
+        CHECK(ctx.scene_compute_passes().size() == 1 && ctx.compute_passes().empty());
+        auto far_effect = ctx.create_effect("far", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.distance); }");
+        auto mask = ctx.create_render_target(32, 32);
+        ctx.set_target_effects({ponko::target_effect_of(far_effect, mask)});
+        auto effects = ctx.target_effects();
+        CHECK(effects.size() == 1 && effects[0].target.id == mask.id && !effects[0].has_material);
+        CHECK(ctx.effects().empty());
+
+        // Keyed distance curves and the audio lock.
+        std::vector<float> samples(800, 0.1f);
+        auto beep = ctx.create_sound(8000, samples.data(), samples.size());
+        const std::vector<ponko::audio_key> curve{{0.0f, 1.0f}, {0.5f, 0.3f}, {1.0f, 0.0f}};
+        ctx.play_sound_at(beep, {3, 0, 0}, ponko::audio_settings3d_defaults(), curve);
+        auto speaker = ctx.world().spawn(ponko::transform3d_at({3, 0, 0}));
+        ctx.set_audio_source3d(speaker, beep, ponko::audio_settings3d_defaults(), curve);
+        throws_invalid([&] { ctx.play_sound_at(beep, {0, 0, 0}, ponko::audio_settings3d_defaults(), {{0.5f, 1.0f}, {0.0f, 0.0f}}); }, "sorted");
+        CHECK(ctx.audio_unlocked());
+
+        // Save slots.
+        ctx.save_world("b");
+        ctx.save_world("a");
+        CHECK((ctx.storage_world_slots() == std::vector<std::string>{"a", "b"}));
+        ctx.delete_world("a");
+        CHECK((ctx.storage_world_slots() == std::vector<std::string>{"b"}));
+        CHECK(ctx.storage_is_persistent() && !ctx.storage_is_saving());
+
+        // The immediate widgets.
+        CHECK(ctx.ui_immediate_font().id == 0);
+        ctx.set_ui_immediate_font(ponko::font{});
+        ctx.set_ui_immediate_border_width(2.0f);
+        CHECK(ctx.ui_immediate_border_width() == 2.0f);
+        ctx.ui_retained().set_scale(2.0f);
+        CHECK(ctx.ui_immediate_scale() == 2.0f);
+        ctx.world().despawn(speaker);
+    });
+    CHECK(diagnosed == 1);
+    std::filesystem::remove_all(dir);
+}
+
 int main() {
     levels_and_tilemaps();
     abi_version_is_checked();
@@ -3230,5 +3335,6 @@ int main() {
     native_coverage();
     wrapper_coverage();
     headless_frames_ui();
+    remaining_bindings();
     std::cout << "C++ wrapper tests passed\n";
 }
