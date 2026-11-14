@@ -138,7 +138,16 @@ fn surface_at(in: VertexOut, front: bool) -> Surface {
         let t = dp2perp * duv1.x + dp1perp * duv2.x;
         let b = dp2perp * duv1.y + dp1perp * duv2.y;
         let inv = inverseSqrt(max(max(dot(t, t), dot(b, b)), 1e-20));
-        var m = textureSample(normal_texture, material_sampler, in.uv).xyz * 2.0 - 1.0;
+        let texel = textureSample(normal_texture, material_sampler, in.uv);
+        var m = texel.xyz * 2.0 - 1.0;
+        // Two-channel normal maps (BC5, EAC; 3: X and Y in red and alpha)
+        // store no Z: it is the rest of the unit length.
+        if material.maps.x >= 2u {
+            if material.maps.x == 3u {
+                m.y = texel.a * 2.0 - 1.0;
+            }
+            m.z = sqrt(max(1.0 - dot(m.xy, m.xy), 0.0));
+        }
         m = vec3<f32>(m.xy * material.params.z, m.z);
         // glTF's texture coordinates run down the image: flip the bitangent.
         n = normalize(t * inv * m.x - b * inv * m.y + n * m.z);
