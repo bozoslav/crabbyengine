@@ -53,7 +53,6 @@ use crate::tilemap::TileMap;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
-#[non_exhaustive]
 pub struct PointLight2D {
     /// sRGB color (alpha ignored). Default white.
     pub color: Color,
@@ -104,7 +103,6 @@ impl Default for PointLight2D {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
-#[non_exhaustive]
 pub struct SpotLight2D {
     /// sRGB color (alpha ignored). Default white.
     pub color: Color,
@@ -159,7 +157,6 @@ impl Default for SpotLight2D {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
-#[non_exhaustive]
 pub struct DirectionalLight2D {
     /// sRGB color (alpha ignored). Default white.
     pub color: Color,
