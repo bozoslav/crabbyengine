@@ -345,6 +345,14 @@ static void controls(ponko::ctx& ctx) {
 // ponko::game("Colony", 1280, 720).sim_system(ants).system(controls);
 // ANCHOR_END: controls
 
+// ANCHOR: physics_pause
+[[maybe_unused]] static void pause_menu(ponko::ctx& ctx) {
+    if (ctx.key_pressed(PONKO_KEY_ESCAPE))
+        ctx.set_physics_paused(!ctx.is_physics_paused()); // the step only
+}
+// ponko::game("Platformer", 1280, 720).physics({0, 980}).sim_system(pause_menu);
+// ANCHOR_END: physics_pause
+
 // ---- Input -------------------------------------------------------------------
 // ANCHOR: gamepad
 struct Player { std::uint32_t slot; float spin; };   // one per connected pad

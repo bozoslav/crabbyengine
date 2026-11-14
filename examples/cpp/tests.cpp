@@ -2777,6 +2777,10 @@ static void headless_wrapper_calls() {
             CHECK(std::fabs(std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z) - 1.0f) < 1e-4f);
             CHECK(ctx.models_drawn() == 0);
             ctx.set_gravity({0, 10});
+            ctx.set_physics_paused(true);
+            CHECK(ctx.is_physics_paused());
+            ctx.set_physics_paused(false);
+            CHECK(!ctx.is_physics_paused());
             ctx.set_gravity3d({0, -1, 0});
             throws([&] { ctx.set_gravity({NAN, 0}); });
             ctx.warm_render_pipelines(); // nothing to build without a renderer

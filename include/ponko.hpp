@@ -5811,6 +5811,15 @@ public:
     // Physics (game::physics), as of the last physics step. Not inside query callbacks.
     /// Changes gravity for every dynamic 2D body, in pixels per second².
     void set_gravity(vec2 gravity) { detail::check(ponko_ctx_set_gravity(raw_, gravity)); }
+    /// Holds the 2D physics step (`true`) or lets it run again; every other system keeps
+    /// running. While held, bodies stay put and no collision events are sent.
+    void set_physics_paused(bool paused) { detail::check(ponko_ctx_set_physics_paused(raw_, paused)); }
+    /// Whether `set_physics_paused` holds the 2D physics step.
+    bool is_physics_paused() {
+        bool paused = false;
+        detail::check(ponko_ctx_is_physics_paused(raw_, &paused));
+        return paused;
+    }
     /// The first collider a ray from `origin` towards `direction` hits within `max_distance`.
     std::optional<ray_hit> cast_ray(vec2 origin, vec2 direction, float max_distance) {
         bool found = false;
