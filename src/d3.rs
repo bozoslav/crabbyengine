@@ -14,6 +14,8 @@
 //!   enough; both paths name the same type.
 //! - Types with no topic module (cameras, transforms, lights, decals, 3D
 //!   text, lines, trails, particle emitters, reflection probes) live here.
+//!   3D attachments ([`Attached`]) live in [`attach`](crate::attach), with
+//!   the 2D ones.
 //!
 //! ```
 //! use ponko::prelude::*;
@@ -63,6 +65,8 @@ pub use crate::anim::{
     JointAnimation, JointMask, LayerBlend, LayerId, MorphAnimation, MorphFrame, MorphTarget, MorphWeights, Motion,
     MotionChild, ParamId, RootMotion, Skeleton, SkinOf, StateId,
 };
+#[doc(no_inline)]
+pub use crate::attach::Attached3D as Attached;
 #[doc(no_inline)]
 pub use crate::audio::{
     AudioListener3D as AudioListener, AudioSettings3D as AudioSettings, AudioSource3D as AudioSource,

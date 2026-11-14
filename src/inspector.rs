@@ -23,7 +23,6 @@ use serde_json::Value;
 
 use crate::d2::Sprite;
 use crate::d2::Transform as Transform2D;
-use crate::editor::Editor;
 use crate::reflect::short_name;
 use crate::{camera::Rect, ctx::Ctx, reflect::WorldReflect};
 
@@ -106,8 +105,6 @@ pub(crate) struct Panels {
     /// Non-empty archetypes that pass the filter, and the first row of each.
     rows: Vec<(usize, usize)>,
     reflected: HashSet<String>,
-    /// Edits with undo, and Play / Stop.
-    pub editor: Editor,
     /// Paused with the panels open: clicks and shortcut keys in the world
     /// go to the editor, not the game.
     pub editing: bool,
@@ -194,7 +191,7 @@ impl Panels {
             self.world_input(ui, ctx);
             self.shortcuts(ui, ctx);
         } else if let Some(drag) = self.drag.take() {
-            self.end_drag(drag);
+            Self::end_drag(ctx, drag);
         }
         self.highlight(ui, ctx);
     }
@@ -255,7 +252,7 @@ impl Panels {
                     drag.moved = true;
                 }
             } else if let Some(drag) = self.drag.take() {
-                self.end_drag(drag);
+                Self::end_drag(ctx, drag);
             }
         }
     }
@@ -264,7 +261,7 @@ impl Panels {
     fn click(&mut self, ctx: &mut Ctx, at: Vec2, keep_placing: bool) {
         let world_at = ctx.camera.screen_to_world(at);
         if let Some(path) = self.placing.clone() {
-            let placed = self.editor.spawn_prefab(ctx, &path, world_at);
+            let placed = ctx.edit(|ed, ctx| ed.spawn_prefab(ctx, &path, world_at));
             if let Some(e) = self.report(placed) {
                 self.selected = Some(e);
             }
@@ -289,9 +286,9 @@ impl Panels {
         }
     }
 
-    fn end_drag(&mut self, drag: Drag) {
+    fn end_drag(ctx: &mut Ctx, drag: Drag) {
         if drag.moved {
-            self.editor.moved(drag.e, drag.before);
+            ctx.edit(|ed, _| ed.moved(drag.e, drag.before));
         }
     }
 
@@ -316,11 +313,11 @@ impl Panels {
         }
         let Some(e) = self.selected else { return };
         if delete {
-            let deleted = self.editor.delete(ctx, e);
+            let deleted = ctx.edit(|ed, ctx| ed.delete(ctx, e));
             self.report(deleted);
             self.selected = None;
         } else if duplicate {
-            let copy = self.editor.duplicate(ctx, e, DUPLICATE_OFFSET);
+            let copy = ctx.edit(|ed, ctx| ed.duplicate(ctx, e, DUPLICATE_OFFSET));
             if let Some(copy) = self.report(copy) {
                 self.selected = Some(copy);
             }
@@ -328,14 +325,14 @@ impl Panels {
     }
 
     fn undo(&mut self, ctx: &mut Ctx) {
-        let undone = self.editor.undo(ctx);
+        let undone = ctx.edit(|ed, ctx| ed.undo(ctx));
         self.report(undone);
     }
 
     /// Undo, new entity, scenes, and the prefab palette.
     fn edit_tools(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
         ui.horizontal(|ui| {
-            if ui.add_enabled(self.editor.can_undo(), Button::new("Undo")).clicked() {
+            if ui.add_enabled(ctx.editor.can_undo(), Button::new("Undo")).clicked() {
                 self.undo(ctx);
             }
             if ui
@@ -344,7 +341,7 @@ impl Panels {
                 .clicked()
             {
                 let at = ctx.camera.center();
-                self.selected = Some(self.editor.spawn_empty(ctx, at));
+                self.selected = Some(ctx.edit(|ed, ctx| ed.spawn_empty(ctx, at)));
             }
         });
         if !self.editing {
@@ -384,7 +381,6 @@ impl Panels {
                 let loaded = ctx.load_scene(&path).map(|()| format!("loaded {path}"));
                 if let Some(done) = self.report(loaded) {
                     self.status = Some(done);
-                    self.editor = Editor::default();
                     self.selected = None;
                 }
             }
@@ -453,23 +449,23 @@ impl Panels {
     fn sim_controls(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
         ui.horizontal(|ui| {
             if ctx.time.is_paused() {
-                let tip = if self.editor.playing() {
+                let tip = if ctx.editor.playing() {
                     "Resume"
                 } else {
                     "Run the game; Stop puts the world back as it is now"
                 };
                 if ui.button("Play").on_hover_text(tip).clicked() {
-                    self.editor.play(ctx);
+                    ctx.edit(|ed, ctx| ed.play(ctx));
                 }
             } else if ui.button("Pause").clicked() {
                 ctx.time.pause();
             }
-            if self.editor.playing() {
+            if ctx.editor.playing() {
                 let stop = ui
                     .button("Stop")
                     .on_hover_text("Pause and put the world back as it was at Play");
                 if stop.clicked() {
-                    let stopped = self.editor.stop(ctx);
+                    let stopped = ctx.edit(|ed, ctx| ed.stop(ctx));
                     self.report(stopped);
                     self.drag = None;
                 }
@@ -478,7 +474,7 @@ impl Panels {
                     .on_hover_text("Keep the world as it is: Stop won't go back")
                     .clicked()
                 {
-                    self.editor.keep();
+                    ctx.edit(|ed, _| ed.keep());
                 }
             }
             if ui.button("Step").on_hover_text("Run one tick (pauses)").clicked() {
@@ -618,13 +614,13 @@ impl Panels {
                 ctx.camera.look_at(at);
             }
             if ui.button("Duplicate").on_hover_text("Ctrl+D").clicked() {
-                let copy = self.editor.duplicate(ctx, e, DUPLICATE_OFFSET);
+                let copy = ctx.edit(|ed, ctx| ed.duplicate(ctx, e, DUPLICATE_OFFSET));
                 if let Some(copy) = self.report(copy) {
                     self.selected = Some(copy);
                 }
             }
             if ui.button("Despawn").on_hover_text("Del").clicked() {
-                let deleted = self.editor.delete(ctx, e);
+                let deleted = ctx.edit(|ed, ctx| ed.delete(ctx, e));
                 self.report(deleted);
                 self.selected = None;
             }
@@ -650,13 +646,13 @@ impl Panels {
                 .default_open(true)
                 .show(ui, |ui| {
                     if edit_value(ui, &mut value) {
-                        let set = self.editor.set(ctx, e, &name, value);
+                        let set = ctx.edit(|ed, ctx| ed.set(ctx, e, &name, value));
                         self.report(set);
                     }
                     remove = ui.small_button("Remove").clicked();
                 });
             if remove {
-                let removed = self.editor.remove(ctx, e, &name);
+                let removed = ctx.edit(|ed, ctx| ed.remove(ctx, e, &name));
                 self.report(removed);
             }
         }
@@ -673,7 +669,7 @@ impl Panels {
                 }
             });
         if let Some(name) = add {
-            let added = self.editor.add(ctx, e, &name);
+            let added = ctx.edit(|ed, ctx| ed.add(ctx, e, &name));
             self.report(added);
         }
     }
@@ -1106,7 +1102,7 @@ mod tests {
             "moved by the drag, not snapped to the cursor"
         );
         frame(&egui, &mut panels, &mut ctx, vec![button(355.0, 322.0, false)]);
-        assert!(panels.editor.can_undo());
+        assert!(ctx.editor.can_undo());
         frame(&egui, &mut panels, &mut ctx, vec![key(Key::Z, true)]);
         assert_eq!(at(&ctx), Vec2::new(300.0, 300.0));
     }
@@ -1166,10 +1162,10 @@ mod tests {
     #[test]
     fn play_then_stop_from_the_panels_restores_the_world() {
         let (egui, mut panels, mut ctx, e) = edit_scene();
-        panels.editor.play(&mut ctx);
+        ctx.edit(|ed, ctx| ed.play(ctx));
         ctx.world.despawn(e);
         frame(&egui, &mut panels, &mut ctx, vec![]);
-        panels.editor.stop(&mut ctx).unwrap();
+        ctx.edit(|ed, ctx| ed.stop(ctx)).unwrap();
         assert!(
             ctx.world.get::<Health>(e).is_some(),
             "back, with the same id (the world was reloaded)"
