@@ -1327,6 +1327,43 @@ static void storage_keeps_files_between_runs() {
     if (!refused) std::abort();
 }
 
+namespace old_saves {
+// ANCHOR: save_migrations
+// The game's component as it is now, at save version 2.
+struct Health { float now; float max; };   // max in hearts; version 1 saved hit points
+
+static void setup(ponko::world& world) {
+    // Named, so saves don't depend on the C++ namespace.
+    world.reflect<Health>("Health", {ponko::field("now", &Health::now), ponko::field("max", &Health::max)});
+    world.set_save_version(2);                       // before the first load
+    world.migration(0)                               // 0 -> 1: saves from before versions
+        .rename_component("Hp", "Health");
+    world.migration(1)                               // 1 -> 2
+        .rename_field("Health", "current", "now")
+        .convert_field("Health", "max", [](const std::string& points) {
+            return std::to_string(std::ceil(std::stod(points) / 4.0));   // 4 points a heart
+        });
+}
+// ANCHOR_END: save_migrations
+
+static void old_saves_still_load() {
+    ponko::world world;
+    setup(world);
+    world.load(R"({"format": "ponko-world", "version": 1,
+                   "entities": [{"entity": 0, "components": {"Hp": {"current": 3, "max": 13}}}]})");
+    std::size_t found = 0;
+    world.each([&](const Health& h) { found += h.now == 3.0f && h.max == 4.0f ? 1 : 0; });
+    if (found != 1 || world.save().find("\"game_version\":2") == std::string::npos) { std::fprintf(stderr, "migration\n"); std::abort(); }
+    bool refused = false;
+    try {
+        world.load(R"({"format": "ponko-world", "version": 1, "game_version": 3, "entities": []})");
+    } catch (const ponko::error& e) {
+        refused = e.kind() == PONKO_ERROR_UNSUPPORTED;
+    }
+    if (!refused) { std::fprintf(stderr, "a newer save loaded\n"); std::abort(); }
+}
+} // namespace old_saves
+
 // ANCHOR: prefab_tree
 static void carts(ponko::ctx& ctx) {
     // A cart: its body (the root), two wheels, a driver and the driver's hat.
@@ -1694,6 +1731,15 @@ static void temporal_antialiasing(ponko::ctx& ctx) {
 }
 // ANCHOR_END: taa
 
+// ANCHOR: reset_motion
+/// Teleports one object: only its motion is dropped, the rest of the
+/// picture keeps its temporal history.
+static void teleport_one(ponko::ctx& ctx, ponko::entity hero) {
+    ctx.world().set(hero, ponko::transform3d_at({100, 0, 0}));
+    ctx.reset_motion(hero);
+}
+// ANCHOR_END: reset_motion
+
 // ANCHOR: shader
 /// Grass that sways in the wind: the higher a vertex, the more it moves.
 static const char* wind_shader = R"(
@@ -1962,6 +2008,7 @@ static void the_village_has_five_spinning_houses() {
         if (ponko::graphics_quality_level(ctx.graphics_quality()) != ponko::quality_level::high) { std::fprintf(stderr, "tier preset\n"); std::abort(); }
         options_menu(ctx);
         temporal_antialiasing(ctx);
+        teleport_one(ctx, ctx.world().spawn(ponko::transform3d_at({0, 0, 0})));
         screen_reflections(ctx);
         if (ctx.post().ssr != 1.0f) { std::fprintf(stderr, "ssr\n"); std::abort(); }
         bounced_light(ctx);
@@ -3321,6 +3368,7 @@ int main() {
     the_dive_adds_one_effect();
     the_beach_has_five_palms();
     storage_keeps_files_between_runs();
+    old_saves::old_saves_still_load();
     a_cart_comes_and_goes_whole();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();
